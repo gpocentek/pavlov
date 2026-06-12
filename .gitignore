@@ -1,0 +1,41 @@
+# Project binary (see Makefile)
+/pavlov
+
+# Local config and dev scripts
+config.yaml
+scripts/
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Coverage and profiling
+*.out
+coverage.*
+*.prof
+cpu.prof
+mem.prof
+
+# Go workspace (local multi-module checkouts)
+go.work
+go.work.sum
+
+# Vendor (uncomment if dependencies are not vendored in-repo)
+# vendor/
+
+# Environment and secrets
+.env
+.env.*
+
+# Editor and OS
+*.swp
+*~
+.idea/
+.vscode/
+.DS_Store
