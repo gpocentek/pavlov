@@ -144,6 +144,10 @@ func validateRuleGroupBy(rule *Rule) error {
 }
 
 func Validate(config *Config) error {
+	if len(config.Rules) == 0 {
+		return fmt.Errorf("no rules found")
+	}
+
 	for idx, rule := range config.Rules {
 		if rule.Disabled {
 			slog.Debug("skipping disabled rule", "rule", rule.Name)
