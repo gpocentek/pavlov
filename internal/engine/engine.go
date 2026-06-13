@@ -28,9 +28,6 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 	absenceEvaluators := make([]*evaluator.Evaluator, 0)
 
 	for _, rule := range cfg.Rules {
-		if rule.Disabled {
-			continue
-		}
 		mgr, ok := managers[rule.File]
 		if !ok {
 			tailer, err := tailer.NewTailer(rule.File)

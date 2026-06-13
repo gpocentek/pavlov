@@ -106,7 +106,6 @@ rules:
 | `action`    | yes      | What to do when the condition passes. See [Actions](#actions). |
 | `group_by`  | no       | Name of a capture group from `pattern`. State (counters, cooldowns) is tracked per group value. The group name must appear in `pattern` as `(?P<group_by>...)`. |
 | `cooldown`  | no       | Minimum seconds between firings for the same group. Default is `0` (no cooldown). Applies to all condition types. |
-| `disabled`  | no       | If `true`, the rule is skipped entirely. Default is `false`. |
 
 ### Conditions
 

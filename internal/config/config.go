@@ -42,7 +42,6 @@ func (r Rule) String() string {
 
 type Rule struct {
 	Name      string          `yaml:"name"`
-	Disabled  bool            `yaml:"disabled"`
 	File      string          `yaml:"file"`
 	Pattern   string          `yaml:"pattern"`
 	GroupBy   string          `yaml:"group_by"`
@@ -149,10 +148,6 @@ func Validate(config *Config) error {
 	}
 
 	for idx, rule := range config.Rules {
-		if rule.Disabled {
-			slog.Debug("skipping disabled rule", "rule", rule.Name)
-			continue
-		}
 		// Name is required
 		if rule.Name == "" {
 			return fmt.Errorf("rule %d: `name` is required", idx)
@@ -208,11 +203,12 @@ func Validate(config *Config) error {
 }
 
 func LoadFromString(data []byte) (*Config, error) {
-	var raw Config
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
-	return &raw, nil
+
+	return &cfg, nil
 }
 
 func LoadFromFile(filename string) (*Config, error) {
@@ -231,14 +227,7 @@ func LoadFromFile(filename string) (*Config, error) {
 		return nil, err
 	}
 
-	enabled := 0
-	for _, rule := range cfg.Rules {
-		if !rule.Disabled {
-			enabled++
-			slog.Debug("loaded rule", "rule", rule.Name, "file", rule.File)
-		}
-	}
-	slog.Info("config loaded", "file", filename, "rules", len(cfg.Rules), "enabled", enabled)
+	slog.Info("config loaded", "file", filename)
 
 	return cfg, nil
 }
