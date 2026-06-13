@@ -14,7 +14,6 @@ type ConditionContext struct {
 	Line        string
 	Vars        map[string]string
 	Group       string
-	Cooldown    uint
 	Timestamp   time.Time
 	State       *GroupState
 	AbsenceTick bool

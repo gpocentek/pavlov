@@ -15,11 +15,10 @@ func (c *ThresholdCondition) String() string {
 }
 
 func (c *ThresholdCondition) Eval(ctx *ConditionContext) bool {
-	timestamp := ctx.Timestamp
-	ctx.State.Window = append(ctx.State.Window, timestamp)
-	ctx.State.LastSeen = timestamp
+	ctx.State.Window = append(ctx.State.Window, ctx.Timestamp)
+	ctx.State.LastSeen = ctx.Timestamp
 
-	cutoff := timestamp.Add(-time.Duration(c.Window) * time.Second)
+	cutoff := ctx.Timestamp.Add(-time.Duration(c.Window) * time.Second)
 	pruned := ctx.State.Window[:0]
 	for _, t := range ctx.State.Window {
 		if !t.Before(cutoff) {
@@ -32,12 +31,6 @@ func (c *ThresholdCondition) Eval(ctx *ConditionContext) bool {
 		return false
 	}
 
-	cooldown := time.Duration(ctx.Cooldown) * time.Second
-	if !ctx.State.LastFired.IsZero() && timestamp.Sub(ctx.State.LastFired) <= cooldown {
-		return false
-	}
-
-	ctx.State.LastFired = timestamp
 	return true
 }
 

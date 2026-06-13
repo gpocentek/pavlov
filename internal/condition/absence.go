@@ -14,23 +14,17 @@ func (c *AbsenceCondition) String() string {
 }
 
 func (c *AbsenceCondition) Eval(ctx *ConditionContext) bool {
-	timestamp := ctx.Timestamp
+	// AbsenceTick is set when the time-base check runs
 	if !ctx.AbsenceTick {
-		ctx.State.LastSeen = timestamp
+		ctx.State.LastSeen = ctx.Timestamp
 		return false
 	}
 
 	absence := time.Duration(c.Duration) * time.Second
-	if timestamp.Sub(ctx.State.LastSeen) <= absence {
+	if ctx.Timestamp.Sub(ctx.State.LastSeen) <= absence {
 		return false
 	}
 
-	cooldown := time.Duration(ctx.Cooldown) * time.Second
-	if !ctx.State.LastFired.IsZero() && timestamp.Sub(ctx.State.LastFired) <= cooldown {
-		return false
-	}
-
-	ctx.State.LastFired = timestamp
 	return true
 }
 

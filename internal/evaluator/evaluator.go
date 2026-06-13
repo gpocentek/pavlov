@@ -85,7 +85,6 @@ func (e *Evaluator) process(event Event) {
 		Line:      event.Line,
 		Vars:      vars,
 		Group:     group,
-		Cooldown:  e.Rule.Cooldown,
 		Timestamp: event.Timestamp,
 		State:     state,
 	}
@@ -94,7 +93,17 @@ func (e *Evaluator) process(event Event) {
 		return
 	}
 
+	if active, expiresAt := e.inCooldown(state, event.Timestamp); active {
+		slog.Info("Condition met, but cooldown not expired",
+			"rule", e.Rule.Name,
+			"group", group,
+			"cooldownExpiresAt", expiresAt,
+		)
+		return
+	}
+
 	slog.Info("Condition met, firing action", "rule", e.Rule.Name, "group", group)
+	state.LastFired = event.Timestamp
 	actionCtx := &action.ActionContext{
 		Rule:      e.Rule.Name,
 		File:      e.Rule.File,
@@ -116,7 +125,6 @@ func (e *Evaluator) CheckAbsence() {
 	for group, state := range e.States {
 		ctx := &condition.ConditionContext{
 			Group:       group,
-			Cooldown:    e.Rule.Cooldown,
 			Timestamp:   now,
 			State:       state,
 			AbsenceTick: true,
@@ -126,7 +134,16 @@ func (e *Evaluator) CheckAbsence() {
 			continue
 		}
 
+		if active, expiresAt := e.inCooldown(state, now); active {
+			slog.Info("Absence detected, but cooldown not expired",
+				"rule", e.Rule.Name,
+				"group", group,
+				"cooldownExpiresAt", expiresAt,
+			)
+			continue
+		}
 		slog.Info("Absence detected, firing action", "rule", e.Rule.Name, "group", group)
+		state.LastFired = now
 		actionCtx := &action.ActionContext{
 			Rule:      e.Rule.Name,
 			File:      e.Rule.File,
@@ -136,6 +153,15 @@ func (e *Evaluator) CheckAbsence() {
 		}
 		go e.Rule.Action.Value.Act(actionCtx)
 	}
+}
+
+func (e *Evaluator) inCooldown(state *condition.GroupState, timestamp time.Time) (bool, time.Time) {
+	// Return (true, expiration time) if the cooldown is not expired, (false, time.Time{}) otherwise
+	cooldown := time.Duration(e.Rule.Cooldown) * time.Second
+	if state.LastFired.IsZero() || timestamp.Sub(state.LastFired) > cooldown {
+		return false, time.Time{}
+	}
+	return true, state.LastFired.Add(cooldown)
 }
 
 func (e *Evaluator) Enqueue(line string, timestamp time.Time) {
