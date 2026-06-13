@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	yaml "gopkg.in/yaml.v3"
@@ -41,13 +42,14 @@ func (r Rule) String() string {
 }
 
 type Rule struct {
-	Name      string          `yaml:"name"`
-	File      string          `yaml:"file"`
-	Pattern   string          `yaml:"pattern"`
-	GroupBy   string          `yaml:"group_by"`
-	Cooldown  uint            `yaml:"cooldown"`
-	Condition ConditionConfig `yaml:"condition"`
-	Action    ActionConfig    `yaml:"action"`
+	Name          string          `yaml:"name"`
+	File          string          `yaml:"file"`
+	Pattern       string          `yaml:"pattern"`
+	PatternRegexp *regexp.Regexp  `yaml:"-"` // Compiled pattern
+	GroupBy       string          `yaml:"group_by"`
+	Cooldown      uint            `yaml:"cooldown"`
+	Condition     ConditionConfig `yaml:"condition"`
+	Action        ActionConfig    `yaml:"action"`
 }
 
 type Config struct {
@@ -162,6 +164,13 @@ func Validate(config *Config) error {
 		if rule.Pattern == "" {
 			return fmt.Errorf("rule %d: `pattern` is required", idx)
 		}
+
+		// Compile pattern
+		patternRegexp, err := regexp.Compile(rule.Pattern)
+		if err != nil {
+			return fmt.Errorf("rule %s: failed to compile pattern %s: %w", rule.Name, rule.Pattern, err)
+		}
+		rule.PatternRegexp = patternRegexp
 
 		// Get absolute path of file
 		file, err := filepath.Abs(filepath.Clean(rule.File))

@@ -203,6 +203,19 @@ func TestRuleMissingPattern(t *testing.T) {
 	}
 }
 
+func TestRuleInvalidPattern(t *testing.T) {
+	yaml := `rules:
+  - name: upstream_timeout
+    file: /tmp/error.log
+    pattern: 'timeout: (?P<backend>.*'
+    group_by: backend
+  `
+	_, err := loadInvalidConfig(t, yaml)
+	if !strings.Contains(err.Error(), "failed to compile pattern") {
+		t.Fatalf("expected 'failed to compile pattern', got %v", err)
+	}
+}
+
 func TestRuleGroupByNotInPattern(t *testing.T) {
 	yaml := `rules:
   - name: upstream_timeout

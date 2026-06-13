@@ -2,7 +2,6 @@ package evaluator
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"regexp"
 	"time"
@@ -24,12 +23,7 @@ type Evaluator struct {
 	events  chan Event
 }
 
-func NewEvaluator(rule *config.Rule) (*Evaluator, error) {
-	compiledRe, err := regexp.Compile(rule.Pattern)
-	if err != nil {
-		return nil, fmt.Errorf("Invalid regex '%s': %v", rule.Pattern, err)
-	}
-
+func NewEvaluator(rule *config.Rule) *Evaluator {
 	states := make(map[string]*condition.GroupState)
 	if _, ok := rule.Condition.Value.(*condition.AbsenceCondition); ok {
 		states[""] = &condition.GroupState{LastSeen: time.Now()}
@@ -37,10 +31,10 @@ func NewEvaluator(rule *config.Rule) (*Evaluator, error) {
 
 	return &Evaluator{
 		Rule:    rule,
-		Pattern: compiledRe,
+		Pattern: rule.PatternRegexp,
 		States:  states,
 		events:  make(chan Event, 512),
-	}, err
+	}
 }
 
 func (e *Evaluator) Run(ctx context.Context) {

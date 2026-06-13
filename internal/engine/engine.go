@@ -39,10 +39,7 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 			managers[rule.File] = mgr
 		}
 
-		ev, err := evaluator.NewEvaluator(rule)
-		if err != nil {
-			return nil, err
-		}
+		ev := evaluator.NewEvaluator(rule)
 		mgr.Evaluators = append(mgr.Evaluators, ev)
 		if _, ok := rule.Condition.Value.(*condition.AbsenceCondition); ok {
 			absenceEvaluators = append(absenceEvaluators, ev)
