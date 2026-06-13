@@ -570,6 +570,21 @@ func TestRuleFilePathAbsolute(t *testing.T) {
 	}
 }
 
+func TestValidateSetsPatternRegexp(t *testing.T) {
+	pattern := `timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)`
+	cfg := loadValidConfig(t, validConfigYAML)
+
+	if cfg.Rules[0].PatternRegexp == nil {
+		t.Fatal("expected PatternRegexp to be set, got nil")
+	}
+	if cfg.Rules[0].PatternRegexp.String() != pattern {
+		t.Fatalf("expected pattern %q, got %q", pattern, cfg.Rules[0].PatternRegexp.String())
+	}
+	if !cfg.Rules[0].PatternRegexp.MatchString("timeout: api.example.com:30") {
+		t.Fatal("expected compiled pattern to match sample line")
+	}
+}
+
 func TestRuleInvalidThresholdCondition(t *testing.T) {
 	yaml := `rules:
   - name: upstream_timeout
@@ -679,6 +694,107 @@ func TestRuleInvalidShellActionNotExecutable(t *testing.T) {
 	_, err := loadInvalidConfig(t, yaml)
 	if !strings.Contains(err.Error(), "is not executable") {
 		t.Fatalf("expected script is not executable error, got %v", err)
+	}
+}
+
+func TestConfigMissingRulesKey(t *testing.T) {
+	cfg, err := LoadFromString([]byte("foo: bar"))
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	err = Validate(cfg)
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if err.Error() != "no rules found" {
+		t.Fatalf("expected 'no rules found', got %v", err)
+	}
+}
+
+func TestRuleFileMissingOK(t *testing.T) {
+	tmpDir := t.TempDir()
+	missingFile := filepath.Join(tmpDir, "does-not-exist.log")
+	yaml := fmt.Sprintf(`rules:
+  - name: test_rule
+    file: %s
+    pattern: 'error'
+    condition:
+      type: seen
+    action:
+      type: log
+      template: "rule={{ .Rule }}"
+`, missingFile)
+	loadValidConfig(t, yaml)
+}
+
+func TestValidateMultipleRulesSecondInvalid(t *testing.T) {
+	yaml := `rules:
+  - name: valid_rule
+    file: /tmp/error.log
+    pattern: 'error'
+    condition:
+      type: seen
+    action:
+      type: log
+      template: "rule={{ .Rule }}"
+  - file: /tmp/error.log
+    pattern: 'error'
+    condition:
+      type: seen
+    action:
+      type: log
+      template: "rule={{ .Rule }}"
+`
+	_, err := loadInvalidConfig(t, yaml)
+	if !strings.Contains(err.Error(), "rule 1: `name` is required") {
+		t.Fatalf("expected 'rule 1: `name` is required', got %v", err)
+	}
+}
+
+func TestConditionConfigMissingType(t *testing.T) {
+	yaml := `threshold: 5
+window: 60
+`
+	var data ConditionConfig
+	err := yamlPkg.Unmarshal([]byte(yaml), &data)
+	expectedError := "condition: unknown type \"\""
+	if !strings.Contains(err.Error(), expectedError) {
+		t.Fatalf("expected '%s', got %v", expectedError, err)
+	}
+}
+
+func TestConditionConfigMalformedThreshold(t *testing.T) {
+	yaml := `type: threshold
+threshold: not-a-number
+window: 60
+`
+	var data ConditionConfig
+	err := yamlPkg.Unmarshal([]byte(yaml), &data)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestActionConfigMissingType(t *testing.T) {
+	yaml := `template: "hello"
+`
+	var data ActionConfig
+	err := yamlPkg.Unmarshal([]byte(yaml), &data)
+	expectedError := "action: unknown type \"\""
+	if !strings.Contains(err.Error(), expectedError) {
+		t.Fatalf("expected '%s', got %v", expectedError, err)
+	}
+}
+
+func TestActionConfigMalformedLog(t *testing.T) {
+	yaml := `type: log
+template:
+  invalid: mapping
+`
+	var data ActionConfig
+	err := yamlPkg.Unmarshal([]byte(yaml), &data)
+	if err == nil {
+		t.Fatal("expected error, got nil")
 	}
 }
 

@@ -72,3 +72,22 @@ func TestAbsenceConditionEvalTick(t *testing.T) {
 		t.Fatalf("expected false, got %v", got)
 	}
 }
+
+func TestAbsenceConditionEvalTickExactDuration(t *testing.T) {
+	condition := &AbsenceCondition{Duration: 10}
+	now := time.Now()
+
+	ctx := &ConditionContext{
+		Timestamp:   now.Add(10 * time.Second),
+		AbsenceTick: true,
+		State:       &GroupState{LastSeen: now},
+	}
+	if got := condition.Eval(ctx); got != false {
+		t.Fatalf("expected false at exact duration, got %v", got)
+	}
+
+	ctx.Timestamp = now.Add(10*time.Second + time.Nanosecond)
+	if got := condition.Eval(ctx); got != true {
+		t.Fatalf("expected true just past duration, got %v", got)
+	}
+}
