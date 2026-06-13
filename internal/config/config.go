@@ -110,7 +110,7 @@ func (c *ConditionConfig) UnmarshalYAML(value *yaml.Node) error {
 		}
 		c.Value = v
 	default:
-		return fmt.Errorf("action: unknown type %q", discriminator.Type)
+		return fmt.Errorf("condition: unknown type %q", discriminator.Type)
 	}
 
 	return nil
