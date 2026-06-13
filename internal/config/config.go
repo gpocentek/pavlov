@@ -163,6 +163,11 @@ func Validate(config *Config) error {
 			return fmt.Errorf("rule %d: `file` is required", idx)
 		}
 
+		// Pattern is required
+		if rule.Pattern == "" {
+			return fmt.Errorf("rule %d: `pattern` is required", idx)
+		}
+
 		// Get absolute path of file
 		file, err := filepath.Abs(filepath.Clean(rule.File))
 		if err != nil {
