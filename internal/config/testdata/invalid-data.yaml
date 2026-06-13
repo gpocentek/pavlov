@@ -1,0 +1,4 @@
+rules:
+  - file: logs/error.log
+    pattern: 'timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)'
+    group_by: backend

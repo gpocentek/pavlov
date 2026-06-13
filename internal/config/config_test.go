@@ -1,53 +1,90 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	yamlPkg "gopkg.in/yaml.v3"
+	"gopkg.in/yaml.v3"
+
+	"pavlov/internal/action"
+	"pavlov/internal/condition"
 )
 
-var validConfigYAML = `rules:
-  - name: upstream_timeout
-    file: /tmp/error.log
-    pattern: 'timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)'
-    group_by: backend
-    cooldown: 60
-    condition:
-      type: threshold
-      threshold: 5
-      window: 60
-    action:
-      type: log
-      template: "fake template"
-  `
+const testPatternWithBackend = `timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)`
 
-func loadInvalidConfig(t *testing.T, yaml string) (*Config, error) {
-	cfg, err := LoadFromString([]byte(yaml))
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+func validRule() *Rule {
+	return &Rule{
+		Name:     "upstream_timeout",
+		File:     "/tmp/error.log",
+		Pattern:  testPatternWithBackend,
+		GroupBy:  "backend",
+		Cooldown: 60,
+		Condition: ConditionConfig{
+			Value: &condition.ThresholdCondition{Threshold: 5, Window: 60},
+		},
+		Action: ActionConfig{
+			Value: &action.LogAction{Template: "fake template"},
+		},
 	}
-	err = Validate(cfg)
-	if err == nil {
-		t.Fatalf("expected error, got nil")
-	}
-	return cfg, err
 }
 
-func loadValidConfig(t *testing.T, yaml string) *Config {
-	cfg, err := LoadFromString([]byte(yaml))
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	err = Validate(cfg)
-	if err != nil {
+func configWithRules(rules ...*Rule) *Config {
+	return &Config{Rules: rules}
+}
+
+func assertValidateOK(t *testing.T, cfg *Config) *Config {
+	t.Helper()
+	if err := Validate(cfg); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	return cfg
 }
+
+func assertValidateError(t *testing.T, cfg *Config, wantSubstring string) error {
+	t.Helper()
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if wantSubstring != "" && !strings.Contains(err.Error(), wantSubstring) {
+		t.Fatalf("expected error containing %q, got %v", wantSubstring, err)
+	}
+	return err
+}
+
+func seenRule() *Rule {
+	rule := validRule()
+	rule.GroupBy = ""
+	rule.Condition = ConditionConfig{Value: &condition.SeenCondition{}}
+	rule.Action = ActionConfig{Value: &action.LogAction{Template: "rule={{ .Rule }}"}}
+	return rule
+}
+
+func unmarshalConditionYAML(t *testing.T, yamlData string) ConditionConfig {
+	t.Helper()
+	var data ConditionConfig
+	if err := yaml.Unmarshal([]byte(yamlData), &data); err != nil {
+		t.Fatalf("unmarshal condition: %v", err)
+	}
+	return data
+}
+
+func unmarshalActionYAML(t *testing.T, yamlData string) ActionConfig {
+	t.Helper()
+	var data ActionConfig
+	if err := yaml.Unmarshal([]byte(yamlData), &data); err != nil {
+		t.Fatalf("unmarshal action: %v", err)
+	}
+	return data
+}
+
+func testdataPath(t *testing.T, name string) string {
+	t.Helper()
+	return filepath.Join("testdata", name)
+}
+
 func TestConfigFileNotFound(t *testing.T) {
 	_, err := LoadFromFile("/tmp/this-file-does-not-exist.yaml")
 	if !strings.Contains(err.Error(), "failed to read") {
@@ -55,71 +92,45 @@ func TestConfigFileNotFound(t *testing.T) {
 	}
 }
 
-func createInvalidYAMLConfigFile(t *testing.T) string {
-	tmpDir := t.TempDir()
-	configFile := filepath.Join(tmpDir, "config.yaml")
-	err := os.WriteFile(configFile, []byte("invalid yaml"), 0644)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	return configFile
-}
-
-func createValidConfigFile(t *testing.T) string {
-	tmpDir := t.TempDir()
-	configFile := filepath.Join(tmpDir, "config.yaml")
-	err := os.WriteFile(configFile, []byte(validConfigYAML), 0644)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	return configFile
-}
-
-func createInvalidDataConfigFile(t *testing.T) string {
-	yaml := `rules:
-  - file: logs/error.log
-    pattern: 'timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)'
-    group_by: backend
-  `
-	tmpDir := t.TempDir()
-	configFile := filepath.Join(tmpDir, "config.yaml")
-	err := os.WriteFile(configFile, []byte(yaml), 0644)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	return configFile
-}
 func TestConfigFileValid(t *testing.T) {
-	configFile := createValidConfigFile(t)
-	_, err := LoadFromFile(configFile)
+	_, err := LoadFromFile(testdataPath(t, "valid.yaml"))
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 }
 
 func TestConfigFileInvalidYAML(t *testing.T) {
-	configFile := createInvalidYAMLConfigFile(t)
-	_, err := LoadFromFile(configFile)
+	_, err := LoadFromFile(testdataPath(t, "invalid-syntax.yaml"))
 	if !strings.Contains(err.Error(), "failed to parse YAML data") {
 		t.Fatalf("expected 'failed to parse YAML data', got %v", err)
 	}
 }
 
 func TestConfigFileInvalidData(t *testing.T) {
-	configFile := createInvalidDataConfigFile(t)
-	_, err := LoadFromFile(configFile)
+	_, err := LoadFromFile(testdataPath(t, "invalid-data.yaml"))
 	if !strings.Contains(err.Error(), "is required") {
 		t.Fatalf("expected 'is required', got %v", err)
 	}
 }
 
 func TestEmptyRules(t *testing.T) {
-	yaml := `rules: []`
-
-	cfg, _ := LoadFromString([]byte(yaml))
-	err := Validate(cfg)
+	err := Validate(configWithRules())
 	if err == nil {
-		t.Fatalf("expected error, got nil")
+		t.Fatal("expected error, got nil")
+	}
+	if err.Error() != "no rules found" {
+		t.Fatalf("expected 'no rules found', got %v", err)
+	}
+}
+
+func TestConfigMissingRulesKey(t *testing.T) {
+	cfg, err := LoadFromString([]byte("foo: bar"))
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	err = Validate(cfg)
+	if err == nil {
+		t.Fatal("expected error, got nil")
 	}
 	if err.Error() != "no rules found" {
 		t.Fatalf("expected 'no rules found', got %v", err)
@@ -127,46 +138,31 @@ func TestEmptyRules(t *testing.T) {
 }
 
 func TestRuleValid(t *testing.T) {
-	loadValidConfig(t, validConfigYAML)
+	assertValidateOK(t, configWithRules(validRule()))
 }
 
 func TestRuleInvalidCooldown(t *testing.T) {
-	yaml := `rules:
+	_, err := LoadFromString([]byte(`rules:
   - name: upstream_timeout
     file: /tmp/error.log
-    pattern: 'timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)'
-    group_by: backend
+    pattern: 'timeout'
     cooldown: -1
-  `
-	_, err := LoadFromString([]byte(yaml))
+`))
 	if !strings.Contains(err.Error(), "cannot unmarshal") {
 		t.Fatalf("expected 'cannot unmarshal', got %v", err)
 	}
 }
-func TestRuleMissingName(t *testing.T) {
-	yaml := `rules:
-  - file: logs/error.log
-    pattern: 'timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)'
-    group_by: backend
-`
 
-	_, err := loadInvalidConfig(t, yaml)
-	if !strings.Contains(err.Error(), "`name` is required") {
-		t.Fatalf("expected '`name` is required', got %v", err)
-	}
+func TestRuleMissingName(t *testing.T) {
+	rule := validRule()
+	rule.Name = ""
+	assertValidateError(t, configWithRules(rule), "`name` is required")
 }
 
 func TestRuleMissingFile(t *testing.T) {
-	yaml := `rules:
-  - name: upstream_timeout
-    pattern: 'timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)'
-    group_by: backend
-  `
-
-	_, err := loadInvalidConfig(t, yaml)
-	if !strings.Contains(err.Error(), "`file` is required") {
-		t.Fatalf("expected '`file` is required', got %v", err)
-	}
+	rule := validRule()
+	rule.File = ""
+	assertValidateError(t, configWithRules(rule), "`file` is required")
 }
 
 func TestRuleInvalidFile(t *testing.T) {
@@ -174,212 +170,123 @@ func TestRuleInvalidFile(t *testing.T) {
 	invalidPath := filepath.Join(tmpDir, "invalid/path/error.log")
 	invalidFolder := filepath.Join(tmpDir, "invalid/path")
 
-	yaml := fmt.Sprintf(`rules:
-  - name: upstream_timeout
-    file: %s
-    pattern: 'timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)'
-    group_by: backend
-  `, invalidPath)
-
-	_, err := loadInvalidConfig(t, yaml)
-	expectedError := fmt.Sprintf("folder %s does not exist (parent of %s)", invalidFolder, invalidPath)
-	if !strings.Contains(
-		err.Error(),
-		expectedError) {
-		t.Fatalf("expected '%s', got %v", expectedError, err)
+	rule := validRule()
+	rule.File = invalidPath
+	expectedError := "folder " + invalidFolder + " does not exist (parent of " + invalidPath + ")"
+	err := assertValidateError(t, configWithRules(rule), expectedError)
+	if !strings.Contains(err.Error(), expectedError) {
+		t.Fatalf("expected %q, got %v", expectedError, err)
 	}
 }
 
 func TestRuleMissingPattern(t *testing.T) {
-	yaml := `rules:
-  - name: upstream_timeout
-    file: logs/error.log
-    group_by: backend
-  `
-
-	_, err := loadInvalidConfig(t, yaml)
-	if !strings.Contains(err.Error(), "`pattern` is required") {
-		t.Fatalf("expected '`pattern` is required', got %v", err)
-	}
+	rule := validRule()
+	rule.Pattern = ""
+	assertValidateError(t, configWithRules(rule), "`pattern` is required")
 }
 
 func TestRuleInvalidPattern(t *testing.T) {
-	yaml := `rules:
-  - name: upstream_timeout
-    file: /tmp/error.log
-    pattern: 'timeout: (?P<backend>.*'
-    group_by: backend
-  `
-	_, err := loadInvalidConfig(t, yaml)
-	if !strings.Contains(err.Error(), "failed to compile pattern") {
-		t.Fatalf("expected 'failed to compile pattern', got %v", err)
-	}
+	rule := validRule()
+	rule.Pattern = `timeout: (?P<backend>.*`
+	assertValidateError(t, configWithRules(rule), "failed to compile pattern")
 }
 
 func TestRuleGroupByNotInPattern(t *testing.T) {
-	yaml := `rules:
-  - name: upstream_timeout
-    file: /tmp/error.log
-    pattern: 'timeout: (?P<host>[0-9a-z.]+):(?P<timeout>\d+)'
-    group_by: backend
-  `
-
-	_, err := loadInvalidConfig(t, yaml)
-	expectedError := "group by backend is not in pattern"
-	if !strings.Contains(err.Error(), expectedError) {
-		t.Fatalf("expected '%s', got %v", expectedError, err)
-	}
+	rule := validRule()
+	rule.Pattern = `timeout: (?P<host>[0-9a-z.]+):(?P<timeout>\d+)`
+	assertValidateError(t, configWithRules(rule), "group by backend is not in pattern")
 }
 
 func TestRuleGroupByEmpty(t *testing.T) {
-	yaml := `rules:
-- name: upstream_timeout
-  file: /tmp/error.log
-  pattern: 'timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)'
-  condition:
-    type: threshold
-    threshold: 5
-    window: 60
-  action:
-    type: log
-    template: "fake template"
-  `
-
-	cfg := loadValidConfig(t, yaml)
+	rule := validRule()
+	rule.GroupBy = ""
+	cfg := assertValidateOK(t, configWithRules(rule))
 	if cfg.Rules[0].GroupBy != "" {
-		t.Fatalf("expected '`group_by` to be empty, got %v", cfg.Rules[0].GroupBy)
+		t.Fatalf("expected empty group_by, got %q", cfg.Rules[0].GroupBy)
 	}
 }
 
 func TestRuleConditionMissing(t *testing.T) {
-	yaml := `rules:
-  - name: upstream_timeout
-    file: /tmp/error.log
-    pattern: 'timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)'
-  `
-
-	_, err := loadInvalidConfig(t, yaml)
-	if !strings.Contains(err.Error(), "`condition` is required") {
-		t.Fatalf("expected '`condition` is required', got %v", err)
-	}
+	rule := validRule()
+	rule.Condition = ConditionConfig{}
+	assertValidateError(t, configWithRules(rule), "`condition` is required")
 }
 
 func TestRuleInvalidConditionType(t *testing.T) {
-	yaml := `rules:
+	_, err := LoadFromString([]byte(`rules:
   - name: upstream_timeout
     file: /tmp/error.log
-    pattern: 'timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)'
+    pattern: 'timeout'
     condition:
       type: invalid
     action:
       type: log
       template: "fake template"
-  `
-	_, err := LoadFromString([]byte(yaml))
-	expectedError := "condition: unknown type \"invalid\""
-	if !strings.Contains(err.Error(), expectedError) {
-		t.Fatalf("expected '%s', got %v", expectedError, err)
+`))
+	if !strings.Contains(err.Error(), `condition: unknown type "invalid"`) {
+		t.Fatalf("expected unknown condition type error, got %v", err)
 	}
 }
 
 func TestRuleActionMissing(t *testing.T) {
-	yaml := `rules:
-  - name: upstream_timeout
-    file: /tmp/error.log
-    pattern: 'timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)'
-    condition:
-      type: threshold
-      threshold: 5
-      window: 60
-  `
-
-	_, err := loadInvalidConfig(t, yaml)
-	if !strings.Contains(err.Error(), "`action` is required") {
-		t.Fatalf("expected '`action` is required', got %v", err)
-	}
+	rule := validRule()
+	rule.Action = ActionConfig{}
+	assertValidateError(t, configWithRules(rule), "`action` is required")
 }
 
 func TestRuleInvalidActionType(t *testing.T) {
-	yaml := `rules:
+	_, err := LoadFromString([]byte(`rules:
   - name: upstream_timeout
     file: /tmp/error.log
-    pattern: 'timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)'
+    pattern: 'timeout'
     condition:
       type: threshold
       threshold: 5
       window: 60
     action:
       type: invalid
-  `
-	_, err := LoadFromString([]byte(yaml))
-	expectedError := "action: unknown type \"invalid\""
-	if !strings.Contains(err.Error(), expectedError) {
-		t.Fatalf("expected '%s', got %v", expectedError, err)
+`))
+	if !strings.Contains(err.Error(), `action: unknown type "invalid"`) {
+		t.Fatalf("expected unknown action type error, got %v", err)
 	}
 }
 
 func TestConditionConfigSeenValid(t *testing.T) {
-	yaml := `type: seen`
-	var data ConditionConfig
-	err := yamlPkg.Unmarshal([]byte(yaml), &data)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	data := unmarshalConditionYAML(t, `type: seen`)
 	if err := data.Value.Validate(); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 }
 
 func TestConditionConfigThresholdValid(t *testing.T) {
-	yaml := `type: threshold
+	data := unmarshalConditionYAML(t, `type: threshold
 threshold: 5
 window: 60
-  `
-	var data ConditionConfig
-	err := yamlPkg.Unmarshal([]byte(yaml), &data)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+`)
 	if err := data.Value.Validate(); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 }
 
 func TestConditionConfigAbsenceValid(t *testing.T) {
-	yaml := `type: absence
+	data := unmarshalConditionYAML(t, `type: absence
 duration: 60
-`
-	var data ConditionConfig
-	err := yamlPkg.Unmarshal([]byte(yaml), &data)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+`)
 	if err := data.Value.Validate(); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 }
 
 func TestConditionConfigUnknownType(t *testing.T) {
-	yaml := `type: invalid`
-	var data ConditionConfig
-	err := yamlPkg.Unmarshal([]byte(yaml), &data)
-	expectedError := "condition: unknown type \"invalid\""
-	if !strings.Contains(err.Error(), expectedError) {
-		t.Fatalf("expected '%s', got %v", expectedError, err)
+	err := yaml.Unmarshal([]byte(`type: invalid`), new(ConditionConfig))
+	if !strings.Contains(err.Error(), `condition: unknown type "invalid"`) {
+		t.Fatalf("expected unknown condition type error, got %v", err)
 	}
 }
 
 func TestConditionConfigThresholdInvalid(t *testing.T) {
-	yaml := `type: threshold
-threshold: 0
-window: 60
-`
-	var data ConditionConfig
-	err := yamlPkg.Unmarshal([]byte(yaml), &data)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if err := data.Value.Validate(); err == nil {
+	c := &condition.ThresholdCondition{Threshold: 0, Window: 60}
+	if err := c.Validate(); err == nil {
 		t.Fatal("expected validation error, got nil")
 	} else if !strings.Contains(err.Error(), "`threshold` must be greater than 0") {
 		t.Fatalf("expected threshold validation error, got %v", err)
@@ -387,16 +294,8 @@ window: 60
 }
 
 func TestConditionConfigThresholdInvalidWindow(t *testing.T) {
-	yaml := `type: threshold
-threshold: 5
-window: 0
-`
-	var data ConditionConfig
-	err := yamlPkg.Unmarshal([]byte(yaml), &data)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if err := data.Value.Validate(); err == nil {
+	c := &condition.ThresholdCondition{Threshold: 5, Window: 0}
+	if err := c.Validate(); err == nil {
 		t.Fatal("expected validation error, got nil")
 	} else if !strings.Contains(err.Error(), "`window` must be greater than 0") {
 		t.Fatalf("expected window validation error, got %v", err)
@@ -404,30 +303,46 @@ window: 0
 }
 
 func TestConditionConfigAbsenceInvalid(t *testing.T) {
-	yaml := `type: absence
-duration: 0
-`
-	var data ConditionConfig
-	err := yamlPkg.Unmarshal([]byte(yaml), &data)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if err := data.Value.Validate(); err == nil {
+	c := &condition.AbsenceCondition{Duration: 0}
+	if err := c.Validate(); err == nil {
 		t.Fatal("expected validation error, got nil")
 	} else if !strings.Contains(err.Error(), "`duration` must be defined and greater than 0") {
 		t.Fatalf("expected duration validation error, got %v", err)
 	}
 }
 
-func TestActionConfigLogValid(t *testing.T) {
-	yaml := `type: log
-template: "rule={{ .Rule }}"
-`
-	var data ActionConfig
-	err := yamlPkg.Unmarshal([]byte(yaml), &data)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+func TestConditionConfigMissingType(t *testing.T) {
+	err := yaml.Unmarshal([]byte(`threshold: 5
+window: 60
+`), new(ConditionConfig))
+	if !strings.Contains(err.Error(), `condition: unknown type ""`) {
+		t.Fatalf("expected missing condition type error, got %v", err)
 	}
+}
+
+func TestConditionConfigMalformedThreshold(t *testing.T) {
+	err := yaml.Unmarshal([]byte(`type: threshold
+threshold: not-a-number
+window: 60
+`), new(ConditionConfig))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestConditionConfigMalformedAbsence(t *testing.T) {
+	err := yaml.Unmarshal([]byte(`type: absence
+duration: not-a-number
+`), new(ConditionConfig))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestActionConfigLogValid(t *testing.T) {
+	data := unmarshalActionYAML(t, `type: log
+template: "rule={{ .Rule }}"
+`)
 	if err := data.Value.Validate(); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -439,26 +354,45 @@ func TestActionConfigShellValid(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	yaml := fmt.Sprintf(`type: shell
-script: %s
-`, script)
-	var data ActionConfig
-	err := yamlPkg.Unmarshal([]byte(yaml), &data)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	data := unmarshalActionYAML(t, `type: shell
+script: `+script+`
+`)
 	if err := data.Value.Validate(); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 }
 
 func TestActionConfigUnknownType(t *testing.T) {
-	yaml := `type: invalid`
-	var data ActionConfig
-	err := yamlPkg.Unmarshal([]byte(yaml), &data)
-	expectedError := "action: unknown type \"invalid\""
-	if !strings.Contains(err.Error(), expectedError) {
-		t.Fatalf("expected '%s', got %v", expectedError, err)
+	err := yaml.Unmarshal([]byte(`type: invalid`), new(ActionConfig))
+	if !strings.Contains(err.Error(), `action: unknown type "invalid"`) {
+		t.Fatalf("expected unknown action type error, got %v", err)
+	}
+}
+
+func TestActionConfigMissingType(t *testing.T) {
+	err := yaml.Unmarshal([]byte(`template: "hello"`), new(ActionConfig))
+	if !strings.Contains(err.Error(), `action: unknown type ""`) {
+		t.Fatalf("expected missing action type error, got %v", err)
+	}
+}
+
+func TestActionConfigMalformedLog(t *testing.T) {
+	err := yaml.Unmarshal([]byte(`type: log
+template:
+  invalid: mapping
+`), new(ActionConfig))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestActionConfigMalformedShell(t *testing.T) {
+	err := yaml.Unmarshal([]byte(`type: shell
+script:
+  invalid: mapping
+`), new(ActionConfig))
+	if err == nil {
+		t.Fatal("expected error, got nil")
 	}
 }
 
@@ -484,54 +418,32 @@ func TestStringMethods(t *testing.T) {
 		t.Fatalf("expected %q, got %q", expected, rule.String())
 	}
 
-	yaml := `type: seen`
-	var condition ConditionConfig
-	if err := yamlPkg.Unmarshal([]byte(yaml), &condition); err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	condition := unmarshalConditionYAML(t, `type: seen`)
 	if condition.String() != "seen()" {
 		t.Fatalf("expected 'seen()', got %q", condition.String())
 	}
 
-	yaml = `type: log
+	action := unmarshalActionYAML(t, `type: log
 template: "hello"
-`
-	var action ActionConfig
-	if err := yamlPkg.Unmarshal([]byte(yaml), &action); err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+`)
 	if !strings.HasPrefix(action.String(), "log(") {
 		t.Fatalf("expected log action string, got %q", action.String())
 	}
 }
 
 func TestRuleValidSeenCondition(t *testing.T) {
-	yaml := `rules:
-  - name: connection_failed
-    file: /tmp/error.log
-    pattern: 'connect failed'
-    condition:
-      type: seen
-    action:
-      type: log
-      template: "rule={{ .Rule }}"
-`
-	loadValidConfig(t, yaml)
+	rule := seenRule()
+	rule.Name = "connection_failed"
+	rule.Pattern = "connect failed"
+	assertValidateOK(t, configWithRules(rule))
 }
 
 func TestRuleValidAbsenceCondition(t *testing.T) {
-	yaml := `rules:
-  - name: heartbeat_missing
-    file: /tmp/error.log
-    pattern: 'heartbeat ok'
-    condition:
-      type: absence
-      duration: 10
-    action:
-      type: log
-      template: "rule={{ .Rule }}"
-`
-	loadValidConfig(t, yaml)
+	rule := seenRule()
+	rule.Name = "heartbeat_missing"
+	rule.Pattern = "heartbeat ok"
+	rule.Condition = ConditionConfig{Value: &condition.AbsenceCondition{Duration: 10}}
+	assertValidateOK(t, configWithRules(rule))
 }
 
 func TestRuleValidShellAction(t *testing.T) {
@@ -540,45 +452,31 @@ func TestRuleValidShellAction(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	yaml := fmt.Sprintf(`rules:
-  - name: alert
-    file: /tmp/error.log
-    pattern: 'error'
-    condition:
-      type: seen
-    action:
-      type: shell
-      script: %s
-`, script)
-	loadValidConfig(t, yaml)
+	rule := seenRule()
+	rule.Name = "alert"
+	rule.Pattern = "error"
+	rule.Action = ActionConfig{Value: &action.ShellAction{Script: script}}
+	assertValidateOK(t, configWithRules(rule))
 }
 
 func TestRuleFilePathAbsolute(t *testing.T) {
-	yaml := `rules:
-  - name: test_rule
-    file: error.log
-    pattern: 'error'
-    condition:
-      type: seen
-    action:
-      type: log
-      template: "rule={{ .Rule }}"
-`
-	cfg := loadValidConfig(t, yaml)
+	rule := seenRule()
+	rule.Name = "test_rule"
+	rule.File = "error.log"
+	cfg := assertValidateOK(t, configWithRules(rule))
 	if !filepath.IsAbs(cfg.Rules[0].File) {
 		t.Fatalf("expected absolute file path, got %q", cfg.Rules[0].File)
 	}
 }
 
 func TestValidateSetsPatternRegexp(t *testing.T) {
-	pattern := `timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)`
-	cfg := loadValidConfig(t, validConfigYAML)
+	cfg := assertValidateOK(t, configWithRules(validRule()))
 
 	if cfg.Rules[0].PatternRegexp == nil {
 		t.Fatal("expected PatternRegexp to be set, got nil")
 	}
-	if cfg.Rules[0].PatternRegexp.String() != pattern {
-		t.Fatalf("expected pattern %q, got %q", pattern, cfg.Rules[0].PatternRegexp.String())
+	if cfg.Rules[0].PatternRegexp.String() != testPatternWithBackend {
+		t.Fatalf("expected pattern %q, got %q", testPatternWithBackend, cfg.Rules[0].PatternRegexp.String())
 	}
 	if !cfg.Rules[0].PatternRegexp.MatchString("timeout: api.example.com:30") {
 		t.Fatal("expected compiled pattern to match sample line")
@@ -586,93 +484,39 @@ func TestValidateSetsPatternRegexp(t *testing.T) {
 }
 
 func TestRuleInvalidThresholdCondition(t *testing.T) {
-	yaml := `rules:
-  - name: upstream_timeout
-    file: /tmp/error.log
-    pattern: 'timeout'
-    condition:
-      type: threshold
-      threshold: 0
-      window: 60
-    action:
-      type: log
-      template: "rule={{ .Rule }}"
-`
-	_, err := loadInvalidConfig(t, yaml)
-	if !strings.Contains(err.Error(), "`threshold` must be greater than 0") {
-		t.Fatalf("expected threshold validation error, got %v", err)
-	}
+	rule := seenRule()
+	rule.Pattern = "timeout"
+	rule.Condition = ConditionConfig{Value: &condition.ThresholdCondition{Threshold: 0, Window: 60}}
+	assertValidateError(t, configWithRules(rule), "`threshold` must be greater than 0")
 }
 
 func TestRuleInvalidThresholdWindow(t *testing.T) {
-	yaml := `rules:
-  - name: upstream_timeout
-    file: /tmp/error.log
-    pattern: 'timeout'
-    condition:
-      type: threshold
-      threshold: 5
-      window: 0
-    action:
-      type: log
-      template: "rule={{ .Rule }}"
-`
-	_, err := loadInvalidConfig(t, yaml)
-	if !strings.Contains(err.Error(), "`window` must be greater than 0") {
-		t.Fatalf("expected window validation error, got %v", err)
-	}
+	rule := seenRule()
+	rule.Pattern = "timeout"
+	rule.Condition = ConditionConfig{Value: &condition.ThresholdCondition{Threshold: 5, Window: 0}}
+	assertValidateError(t, configWithRules(rule), "`window` must be greater than 0")
 }
 
 func TestRuleInvalidAbsenceCondition(t *testing.T) {
-	yaml := `rules:
-  - name: heartbeat_missing
-    file: /tmp/error.log
-    pattern: 'heartbeat ok'
-    condition:
-      type: absence
-      duration: 0
-    action:
-      type: log
-      template: "rule={{ .Rule }}"
-`
-	_, err := loadInvalidConfig(t, yaml)
-	if !strings.Contains(err.Error(), "`duration` must be defined and greater than 0") {
-		t.Fatalf("expected duration validation error, got %v", err)
-	}
+	rule := seenRule()
+	rule.Name = "heartbeat_missing"
+	rule.Pattern = "heartbeat ok"
+	rule.Condition = ConditionConfig{Value: &condition.AbsenceCondition{Duration: 0}}
+	assertValidateError(t, configWithRules(rule), "`duration` must be defined and greater than 0")
 }
 
 func TestRuleInvalidLogTemplate(t *testing.T) {
-	yaml := `rules:
-  - name: test_rule
-    file: /tmp/error.log
-    pattern: 'error'
-    condition:
-      type: seen
-    action:
-      type: log
-      template: "{{invalid"
-`
-	_, err := loadInvalidConfig(t, yaml)
-	if !strings.Contains(err.Error(), "failed to parse log template") {
-		t.Fatalf("expected log template parse error, got %v", err)
-	}
+	rule := seenRule()
+	rule.Name = "test_rule"
+	rule.Action = ActionConfig{Value: &action.LogAction{Template: "{{invalid"}}
+	assertValidateError(t, configWithRules(rule), "failed to parse log template")
 }
 
 func TestRuleInvalidShellActionMissingScript(t *testing.T) {
-	yaml := `rules:
-  - name: alert
-    file: /tmp/error.log
-    pattern: 'error'
-    condition:
-      type: seen
-    action:
-      type: shell
-      script: /tmp/does-not-exist.sh
-`
-	_, err := loadInvalidConfig(t, yaml)
-	if !strings.Contains(err.Error(), "does not exist") {
-		t.Fatalf("expected script does not exist error, got %v", err)
-	}
+	rule := seenRule()
+	rule.Name = "alert"
+	rule.Action = ActionConfig{Value: &action.ShellAction{Script: "/tmp/does-not-exist.sh"}}
+	assertValidateError(t, configWithRules(rule), "does not exist")
 }
 
 func TestRuleInvalidShellActionNotExecutable(t *testing.T) {
@@ -681,135 +525,35 @@ func TestRuleInvalidShellActionNotExecutable(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	yaml := fmt.Sprintf(`rules:
-  - name: alert
-    file: /tmp/error.log
-    pattern: 'error'
-    condition:
-      type: seen
-    action:
-      type: shell
-      script: %s
-`, script)
-	_, err := loadInvalidConfig(t, yaml)
-	if !strings.Contains(err.Error(), "is not executable") {
-		t.Fatalf("expected script is not executable error, got %v", err)
-	}
-}
-
-func TestConfigMissingRulesKey(t *testing.T) {
-	cfg, err := LoadFromString([]byte("foo: bar"))
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	err = Validate(cfg)
-	if err == nil {
-		t.Fatalf("expected error, got nil")
-	}
-	if err.Error() != "no rules found" {
-		t.Fatalf("expected 'no rules found', got %v", err)
-	}
+	rule := seenRule()
+	rule.Name = "alert"
+	rule.Action = ActionConfig{Value: &action.ShellAction{Script: script}}
+	assertValidateError(t, configWithRules(rule), "is not executable")
 }
 
 func TestRuleFileMissingOK(t *testing.T) {
 	tmpDir := t.TempDir()
 	missingFile := filepath.Join(tmpDir, "does-not-exist.log")
-	yaml := fmt.Sprintf(`rules:
-  - name: test_rule
-    file: %s
-    pattern: 'error'
-    condition:
-      type: seen
-    action:
-      type: log
-      template: "rule={{ .Rule }}"
-`, missingFile)
-	loadValidConfig(t, yaml)
+
+	rule := seenRule()
+	rule.Name = "test_rule"
+	rule.File = missingFile
+	assertValidateOK(t, configWithRules(rule))
 }
 
 func TestValidateMultipleRulesSecondInvalid(t *testing.T) {
-	yaml := `rules:
-  - name: valid_rule
-    file: /tmp/error.log
-    pattern: 'error'
-    condition:
-      type: seen
-    action:
-      type: log
-      template: "rule={{ .Rule }}"
-  - file: /tmp/error.log
-    pattern: 'error'
-    condition:
-      type: seen
-    action:
-      type: log
-      template: "rule={{ .Rule }}"
-`
-	_, err := loadInvalidConfig(t, yaml)
-	if !strings.Contains(err.Error(), "rule 1: `name` is required") {
-		t.Fatalf("expected 'rule 1: `name` is required', got %v", err)
-	}
-}
+	valid := seenRule()
+	valid.Name = "valid_rule"
 
-func TestConditionConfigMissingType(t *testing.T) {
-	yaml := `threshold: 5
-window: 60
-`
-	var data ConditionConfig
-	err := yamlPkg.Unmarshal([]byte(yaml), &data)
-	expectedError := "condition: unknown type \"\""
-	if !strings.Contains(err.Error(), expectedError) {
-		t.Fatalf("expected '%s', got %v", expectedError, err)
-	}
-}
+	invalid := seenRule()
+	invalid.Name = ""
 
-func TestConditionConfigMalformedThreshold(t *testing.T) {
-	yaml := `type: threshold
-threshold: not-a-number
-window: 60
-`
-	var data ConditionConfig
-	err := yamlPkg.Unmarshal([]byte(yaml), &data)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-}
-
-func TestActionConfigMissingType(t *testing.T) {
-	yaml := `template: "hello"
-`
-	var data ActionConfig
-	err := yamlPkg.Unmarshal([]byte(yaml), &data)
-	expectedError := "action: unknown type \"\""
-	if !strings.Contains(err.Error(), expectedError) {
-		t.Fatalf("expected '%s', got %v", expectedError, err)
-	}
-}
-
-func TestActionConfigMalformedLog(t *testing.T) {
-	yaml := `type: log
-template:
-  invalid: mapping
-`
-	var data ActionConfig
-	err := yamlPkg.Unmarshal([]byte(yaml), &data)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
+	assertValidateError(t, configWithRules(valid, invalid), "rule 1: `name` is required")
 }
 
 func TestRuleInvalidShellActionMissingScriptField(t *testing.T) {
-	yaml := `rules:
-  - name: alert
-    file: /tmp/error.log
-    pattern: 'error'
-    condition:
-      type: seen
-    action:
-      type: shell
-`
-	_, err := loadInvalidConfig(t, yaml)
-	if !strings.Contains(err.Error(), "`script` is required") {
-		t.Fatalf("expected '`script` is required', got %v", err)
-	}
+	rule := seenRule()
+	rule.Name = "alert"
+	rule.Action = ActionConfig{Value: &action.ShellAction{}}
+	assertValidateError(t, configWithRules(rule), "`script` is required")
 }

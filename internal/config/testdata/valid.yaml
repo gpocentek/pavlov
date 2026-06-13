@@ -1,0 +1,13 @@
+rules:
+  - name: upstream_timeout
+    file: /tmp/error.log
+    pattern: 'timeout: (?P<backend>[0-9a-z.]+):(?P<timeout>\d+)'
+    group_by: backend
+    cooldown: 60
+    condition:
+      type: threshold
+      threshold: 5
+      window: 60
+    action:
+      type: log
+      template: "fake template"
