@@ -50,14 +50,17 @@ func NewTailer(file string) (*Tailer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not create the watcher: %v", err)
 	}
-	t.watcher.Add(t.folder)
+	err = t.watcher.Add(t.folder)
+	if err != nil {
+		return nil, fmt.Errorf("could not add folder watcher: %v", err)
+	}
 
 	return t, nil
 }
 
 func (t *Tailer) watchFile(skipToTheEnd bool) error {
 	if t.fd != nil {
-		t.fd.Close()
+		_ = t.fd.Close()
 	}
 
 	fd, err := os.OpenFile(t.File, os.O_RDONLY, 0644)
@@ -69,10 +72,16 @@ func (t *Tailer) watchFile(skipToTheEnd bool) error {
 	t.reader = bufio.NewReader(t.fd)
 
 	if skipToTheEnd {
-		t.fd.Seek(0, io.SeekEnd)
+		_, err = t.fd.Seek(0, io.SeekEnd)
+		if err != nil {
+			return fmt.Errorf("could not seek to end of file: %v", err)
+		}
 	}
 
-	t.watcher.Add(t.File)
+	err = t.watcher.Add(t.File)
+	if err != nil {
+		return fmt.Errorf("could not add file watcher: %v", err)
+	}
 	slog.Info("tailing file", "file", t.File, "from_end", skipToTheEnd)
 
 	return nil
@@ -93,7 +102,11 @@ func (t *Tailer) readAndEmit() {
 	if trueOffset > info.Size() {
 		// File was truncated (copytruncate rotation) — rewind
 		slog.Warn("file truncated, rewinding", "file", t.File)
-		t.fd.Seek(0, io.SeekStart)
+		_, err = t.fd.Seek(0, io.SeekStart)
+		if err != nil {
+			slog.Warn("failed to seek to start of file", "file", t.File, "err", err)
+			return
+		}
 		t.reader.Reset(t.fd)
 	}
 
