@@ -156,13 +156,13 @@ func TestRuleInvalidCooldown(t *testing.T) {
 func TestRuleMissingName(t *testing.T) {
 	rule := validRule()
 	rule.Name = ""
-	assertValidateError(t, configWithRules(rule), "`name` is required")
+	_ = assertValidateError(t, configWithRules(rule), "`name` is required")
 }
 
 func TestRuleMissingFile(t *testing.T) {
 	rule := validRule()
 	rule.File = ""
-	assertValidateError(t, configWithRules(rule), "`file` is required")
+	_ = assertValidateError(t, configWithRules(rule), "`file` is required")
 }
 
 func TestRuleInvalidFile(t *testing.T) {
@@ -182,19 +182,19 @@ func TestRuleInvalidFile(t *testing.T) {
 func TestRuleMissingPattern(t *testing.T) {
 	rule := validRule()
 	rule.Pattern = ""
-	assertValidateError(t, configWithRules(rule), "`pattern` is required")
+	_ = assertValidateError(t, configWithRules(rule), "`pattern` is required")
 }
 
 func TestRuleInvalidPattern(t *testing.T) {
 	rule := validRule()
 	rule.Pattern = `timeout: (?P<backend>.*`
-	assertValidateError(t, configWithRules(rule), "failed to compile pattern")
+	_ = assertValidateError(t, configWithRules(rule), "failed to compile pattern")
 }
 
 func TestRuleGroupByNotInPattern(t *testing.T) {
 	rule := validRule()
 	rule.Pattern = `timeout: (?P<host>[0-9a-z.]+):(?P<timeout>\d+)`
-	assertValidateError(t, configWithRules(rule), "group by backend is not in pattern")
+	_ = assertValidateError(t, configWithRules(rule), "group by backend is not in pattern")
 }
 
 func TestRuleGroupByEmpty(t *testing.T) {
@@ -209,7 +209,7 @@ func TestRuleGroupByEmpty(t *testing.T) {
 func TestRuleConditionMissing(t *testing.T) {
 	rule := validRule()
 	rule.Condition = ConditionConfig{}
-	assertValidateError(t, configWithRules(rule), "`condition` is required")
+	_ = assertValidateError(t, configWithRules(rule), "`condition` is required")
 }
 
 func TestRuleInvalidConditionType(t *testing.T) {
@@ -231,7 +231,7 @@ func TestRuleInvalidConditionType(t *testing.T) {
 func TestRuleActionMissing(t *testing.T) {
 	rule := validRule()
 	rule.Action = ActionConfig{}
-	assertValidateError(t, configWithRules(rule), "`action` is required")
+	_ = assertValidateError(t, configWithRules(rule), "`action` is required")
 }
 
 func TestRuleInvalidActionType(t *testing.T) {
@@ -487,14 +487,14 @@ func TestRuleInvalidThresholdCondition(t *testing.T) {
 	rule := seenRule()
 	rule.Pattern = "timeout"
 	rule.Condition = ConditionConfig{Value: &condition.ThresholdCondition{Threshold: 0, Window: 60}}
-	assertValidateError(t, configWithRules(rule), "`threshold` must be greater than 0")
+	_ = assertValidateError(t, configWithRules(rule), "`threshold` must be greater than 0")
 }
 
 func TestRuleInvalidThresholdWindow(t *testing.T) {
 	rule := seenRule()
 	rule.Pattern = "timeout"
 	rule.Condition = ConditionConfig{Value: &condition.ThresholdCondition{Threshold: 5, Window: 0}}
-	assertValidateError(t, configWithRules(rule), "`window` must be greater than 0")
+	_ = assertValidateError(t, configWithRules(rule), "`window` must be greater than 0")
 }
 
 func TestRuleInvalidAbsenceCondition(t *testing.T) {
@@ -502,21 +502,21 @@ func TestRuleInvalidAbsenceCondition(t *testing.T) {
 	rule.Name = "heartbeat_missing"
 	rule.Pattern = "heartbeat ok"
 	rule.Condition = ConditionConfig{Value: &condition.AbsenceCondition{Duration: 0}}
-	assertValidateError(t, configWithRules(rule), "`duration` must be defined and greater than 0")
+	_ = assertValidateError(t, configWithRules(rule), "`duration` must be defined and greater than 0")
 }
 
 func TestRuleInvalidLogTemplate(t *testing.T) {
 	rule := seenRule()
 	rule.Name = "test_rule"
 	rule.Action = ActionConfig{Value: &action.LogAction{Template: "{{invalid"}}
-	assertValidateError(t, configWithRules(rule), "failed to parse log template")
+	_ = assertValidateError(t, configWithRules(rule), "failed to parse log template")
 }
 
 func TestRuleInvalidShellActionMissingScript(t *testing.T) {
 	rule := seenRule()
 	rule.Name = "alert"
 	rule.Action = ActionConfig{Value: &action.ShellAction{Script: "/tmp/does-not-exist.sh"}}
-	assertValidateError(t, configWithRules(rule), "does not exist")
+	_ = assertValidateError(t, configWithRules(rule), "does not exist")
 }
 
 func TestRuleInvalidShellActionNotExecutable(t *testing.T) {
@@ -528,7 +528,7 @@ func TestRuleInvalidShellActionNotExecutable(t *testing.T) {
 	rule := seenRule()
 	rule.Name = "alert"
 	rule.Action = ActionConfig{Value: &action.ShellAction{Script: script}}
-	assertValidateError(t, configWithRules(rule), "is not executable")
+	_ = assertValidateError(t, configWithRules(rule), "is not executable")
 }
 
 func TestRuleFileMissingOK(t *testing.T) {
@@ -548,12 +548,12 @@ func TestValidateMultipleRulesSecondInvalid(t *testing.T) {
 	invalid := seenRule()
 	invalid.Name = ""
 
-	assertValidateError(t, configWithRules(valid, invalid), "rule 1: `name` is required")
+	_ = assertValidateError(t, configWithRules(valid, invalid), "rule 1: `name` is required")
 }
 
 func TestRuleInvalidShellActionMissingScriptField(t *testing.T) {
 	rule := seenRule()
 	rule.Name = "alert"
 	rule.Action = ActionConfig{Value: &action.ShellAction{}}
-	assertValidateError(t, configWithRules(rule), "`script` is required")
+	_ = assertValidateError(t, configWithRules(rule), "`script` is required")
 }

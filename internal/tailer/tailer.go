@@ -36,7 +36,7 @@ func NewTailer(file string) (*Tailer, error) {
 
 	info, err := os.Stat(t.folder)
 	if err != nil {
-		return nil, fmt.Errorf("Could not open %s: %v", t.folder, err)
+		return nil, fmt.Errorf("could not open %s: %v", t.folder, err)
 	}
 	if !info.IsDir() {
 		return nil, fmt.Errorf("%s is not a directory", t.folder)
@@ -48,7 +48,7 @@ func NewTailer(file string) (*Tailer, error) {
 
 	t.watcher, err = fsnotify.NewWatcher()
 	if err != nil {
-		return nil, fmt.Errorf("Could not create the watcher: %v", err)
+		return nil, fmt.Errorf("could not create the watcher: %v", err)
 	}
 	t.watcher.Add(t.folder)
 
@@ -116,13 +116,16 @@ func (t *Tailer) readAndEmit() {
 func (t *Tailer) Run() error {
 	err := t.watchFile(true)
 	if err != nil {
-		return fmt.Errorf("Could not start tailer: %v", err)
+		return fmt.Errorf("could not start tailer: %v", err)
 	}
 
 	for event := range t.watcher.Events {
 		if event.Has(fsnotify.Create) && event.Name == t.File {
 			slog.Info("file appeared, tailing from start", "file", event.Name)
 			err = t.watchFile(false)
+			if err != nil {
+				return fmt.Errorf("could not watch file: %v", err)
+			}
 			t.readAndEmit()
 		} else if event.Has(fsnotify.Write) && event.Name == t.File {
 			t.readAndEmit()

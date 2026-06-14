@@ -32,7 +32,7 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 		if !ok {
 			tailer, err := tailer.NewTailer(rule.File)
 			if err != nil {
-				return nil, fmt.Errorf("Failed to create tailer: %v", err)
+				return nil, fmt.Errorf("failed to create tailer: %v", err)
 			}
 			evaluators := make([]*evaluator.Evaluator, 0)
 			mgr = &tailerManager{Tailer: tailer, Evaluators: evaluators}

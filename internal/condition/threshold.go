@@ -27,11 +27,7 @@ func (c *ThresholdCondition) Eval(ctx *ConditionContext) bool {
 	}
 	ctx.State.Window = pruned
 
-	if len(ctx.State.Window) < int(c.Threshold) {
-		return false
-	}
-
-	return true
+	return len(ctx.State.Window) >= int(c.Threshold)
 }
 
 func (c *ThresholdCondition) Validate() error {

@@ -21,11 +21,7 @@ func (c *AbsenceCondition) Eval(ctx *ConditionContext) bool {
 	}
 
 	absence := time.Duration(c.Duration) * time.Second
-	if ctx.Timestamp.Sub(ctx.State.LastSeen) <= absence {
-		return false
-	}
-
-	return true
+	return ctx.Timestamp.Sub(ctx.State.LastSeen) > absence
 }
 
 func (c *AbsenceCondition) Validate() error {
