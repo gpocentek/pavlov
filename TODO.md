@@ -6,8 +6,6 @@ Items prefixed with **!** are important — reliability, safety, or operability 
 
 ## Testing and docs
 
-- [ ] ! Add tests (conditions, config validation, evaluator matching)
-- [ ] ! Add CI (tests, `go vet` on push)
 - [ ] Add documentation beyond README (config cookbook, architecture notes)
 - [ ] Example configs per use case (nginx errors, k8s pod logs, heartbeat absence)
 - [ ] `-version` flag (print embedded git commit / build time at startup)
@@ -55,7 +53,6 @@ Today every rule uses a Go regex on the raw log line. Planned alternatives:
 - [ ] Syslog action (emit formatted alert to syslog instead of stderr)
 - [ ] HTTP call action (POST/GET with headers, optional TLS skip, templated body)
 - [ ] Load action templates from file (keep large templates out of the main config)
-- [ ] Notification integrations (Slack, email, PagerDuty — thin presets over the HTTP action)
 - [ ] Log action `file` field (write rendered template to a dedicated file; field exists in code but is unused today)
 - [ ] Multiple actions per rule (run a list of actions when the condition fires)
 - [ ] Idempotency key env var for shell actions (stable hash of rule + group + time bucket so downstream can dedupe)
