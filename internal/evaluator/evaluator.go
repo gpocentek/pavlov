@@ -142,24 +142,36 @@ func (e *Evaluator) tryFire(state *condition.GroupState, actionCtx *action.Actio
 		return false
 	}
 
+	timeout := *e.Rule.Action.Value.GetActionConfig().Timeout
+	stopPrevious := *e.Rule.Action.Value.GetActionConfig().StopPrevious
+
 	slog.Info("Condition met, firing action", "rule", e.Rule.Name, "group", actionCtx.Group)
 	state.LastFired = actionCtx.Timestamp
 
-	actionConfig := e.Rule.Action.Value.GetActionConfig()
+	if stopPrevious && state.RunCtx != nil && state.RunCtx.Err() == nil {
+		slog.Warn("Cancelling previous action", "rule", e.Rule.Name, "group", actionCtx.Group)
+		state.Cancel()
+	}
+
 	var ctx context.Context
 	var cancel context.CancelFunc
-	if *actionConfig.Timeout > 0 {
+	if timeout > 0 {
 		ctx, cancel = context.WithTimeout(
 			context.Background(),
-			time.Duration(*actionConfig.Timeout)*time.Second,
+			time.Duration(timeout)*time.Second,
 		)
 	} else {
-		ctx = context.Background()
+		ctx, cancel = context.WithCancel(context.Background())
 	}
+
 	go func() {
 		if cancel != nil {
 			defer cancel()
 		}
+
+		state.Cancel = cancel
+		state.RunCtx = ctx
+		slog.Debug("Starting action", "rule", e.Rule.Name, "group", actionCtx.Group)
 		e.Rule.Action.Value.Act(ctx, actionCtx)
 	}()
 	return true

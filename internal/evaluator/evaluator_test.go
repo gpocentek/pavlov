@@ -445,3 +445,70 @@ func TestTimeoutKillsRunningAction(t *testing.T) {
 		t.Fatal("expected action to be cancelled by timeout")
 	}
 }
+
+func TestStopPreviousCancelsAndStartsNewAction(t *testing.T) {
+	recorder := newRecordingAction()
+	*recorder.Timeout = 60
+	*recorder.StopPrevious = true
+	recorder.finishedCh = make(chan error, 1)
+
+	ev := NewEvaluator(newTestRule(t, func(r *config.Rule) {
+		r.Cooldown = 0
+		r.Action = config.ActionConfig{Value: recorder}
+	}))
+
+	now := time.Now()
+	if got := ev.process(Event{Line: "error: api", Timestamp: now}); !got {
+		t.Fatalf("expected true, got %v", got)
+	}
+	waitForRecordedAction(t, recorder.ch)
+
+	if got := ev.process(Event{Line: "error: db", Timestamp: now.Add(time.Second)}); !got {
+		t.Fatalf("expected true, got %v", got)
+	}
+
+	select {
+	case err := <-recorder.finishedCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected previous action cancelled, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected previous action to be cancelled")
+	}
+
+	actionCtx := waitForRecordedAction(t, recorder.ch)
+	if actionCtx.Line != "error: db" {
+		t.Fatalf("expected line error: db, got %q", actionCtx.Line)
+	}
+}
+
+func TestStopPreviousSkipsCompletedAction(t *testing.T) {
+	recorder := newRecordingAction()
+	*recorder.StopPrevious = true
+	recorder.finishedCh = make(chan error, 1)
+
+	ev := NewEvaluator(newTestRule(t, func(r *config.Rule) {
+		r.Cooldown = 0
+		r.Action = config.ActionConfig{Value: recorder}
+	}))
+
+	now := time.Now()
+	if got := ev.process(Event{Line: "error: api", Timestamp: now}); !got {
+		t.Fatalf("expected true, got %v", got)
+	}
+	waitForRecordedAction(t, recorder.ch)
+
+	if got := ev.process(Event{Line: "error: db", Timestamp: now.Add(time.Second)}); !got {
+		t.Fatalf("expected true, got %v", got)
+	}
+
+	select {
+	case err := <-recorder.finishedCh:
+		t.Fatalf("unexpected cancellation of completed action: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	actionCtx := waitForRecordedAction(t, recorder.ch)
+	if actionCtx.Line != "error: db" {
+		t.Fatalf("expected line error: db, got %q", actionCtx.Line)
+	}
+}

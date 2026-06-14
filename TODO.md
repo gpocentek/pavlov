@@ -48,7 +48,6 @@ Today every rule uses a Go regex on the raw log line. Planned alternatives:
 
 ## Actions
 
-- [ ] ! Action concurrency limits (cap simultaneous action executions — per-rule and/or global semaphore; prevents script storms)
 - [ ] Syslog action (emit formatted alert to syslog instead of stderr)
 - [ ] HTTP call action (POST/GET with headers, optional TLS skip, templated body)
 - [ ] Load action templates from file (keep large templates out of the main config)
