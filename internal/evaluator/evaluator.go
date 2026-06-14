@@ -111,7 +111,7 @@ func (e *Evaluator) process(event LineEvent) bool {
 		GroupBy:   e.Rule.GroupBy,
 		Group:     scopeKey,
 		Timestamp: event.Timestamp,
-		Vars:      captures,
+		Captures:  captures,
 	}
 	return e.tryFire(state, actionCtx)
 }

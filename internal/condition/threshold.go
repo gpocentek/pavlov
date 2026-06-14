@@ -6,12 +6,12 @@ import (
 )
 
 type ThresholdCondition struct {
-	Threshold uint `yaml:"threshold"`
-	Window    uint `yaml:"window"`
+	Count  uint `yaml:"count"`
+	Window uint `yaml:"window"`
 }
 
 func (c *ThresholdCondition) String() string {
-	return fmt.Sprintf("threshold(threshold=%d, window=%d)", c.Threshold, c.Window)
+	return fmt.Sprintf("threshold(count=%d, window=%d)", c.Count, c.Window)
 }
 
 func (c *ThresholdCondition) Eval(ctx *ConditionContext) bool {
@@ -26,12 +26,12 @@ func (c *ThresholdCondition) Eval(ctx *ConditionContext) bool {
 	}
 	ctx.State.MatchTimes = pruned
 
-	return len(ctx.State.MatchTimes) >= int(c.Threshold)
+	return len(ctx.State.MatchTimes) >= int(c.Count)
 }
 
 func (c *ThresholdCondition) Validate() error {
-	if c.Threshold < 1 {
-		return fmt.Errorf("`threshold` must be greater than 0")
+	if c.Count < 1 {
+		return fmt.Errorf("`count` must be greater than 0")
 	}
 	if c.Window < 1 {
 		return fmt.Errorf("`window` must be greater than 0")

@@ -88,7 +88,7 @@ rules:
     cooldown: 30
     condition:
       type: threshold
-      threshold: 5
+      count: 5
       window: 60
     action:
       type: log
@@ -111,25 +111,25 @@ rules:
 
 Every condition has a `type` field. Cooldown is configured on the rule, not inside the condition.
 
-#### `seen`
+#### `match`
 
 Fire on the first matching line (after cooldown).
 
 ```yaml
 condition:
-  type: seen
+  type: match
 ```
 
 Use for immediate alerts: "tell me the first time this error appears."
 
 #### `threshold`
 
-Fire when at least `threshold` matching lines arrive within a sliding `window` (seconds).
+Fire when at least `count` matching lines arrive within a sliding `window` (seconds).
 
 ```yaml
 condition:
   type: threshold
-  threshold: 5   # minimum matches required
+  count: 5   # minimum matches required
   window: 60     # sliding window in seconds
 ```
 
@@ -186,7 +186,7 @@ action:
 | `.Timestamp`   | Time of the event |
 | `.GroupBy`     | `group_by` field value |
 | `.Group`       | Captured group value (empty if `group_by` is not set) |
-| `.Vars`        | Map of all named capture groups |
+| `.Captures`    | Map of all named capture groups |
 
 #### `shell`
 
@@ -210,7 +210,7 @@ The script receives these environment variables:
 | `PAVLOV_TS`   | Unix timestamp of the event |
 | `PAVLOV_GROUP` | Captured group value |
 | `PAVLOV_GROUP_BY` | `group_by` field value |
-| `PAVLOV_VAR_<name>` | One variable per named capture group (e.g. `PAVLOV_VAR_backend`) |
+| `PAVLOV_CAPTURE_<name>` | One variable per named capture group (e.g. `PAVLOV_CAPTURE_backend`) |
 
 Script stdout and stderr are captured in Pavlov's logs on failure. Timeouts and cancellation kill the script's entire process group (not just the top-level process), so child processes started by the script do not keep running after a timeout or `stop_previous` cancel.
 
@@ -227,20 +227,20 @@ rules:
     group_by: backend
     condition:
       type: threshold
-      threshold: 5
+      count: 5
       window: 10
     cooldown: 30
     action:
       type: log
-      template: "{{ .Rule }} {{ .File }} {{ .Line }} {{ .Timestamp }} {{ .Group }} {{ .Vars }}"
+      template: "{{ .Rule }} {{ .File }} {{ .Line }} {{ .Timestamp }} {{ .Group }} {{ .Captures }}"
 
-  # Immediate: fire once per backend when a connection failure is seen
+  # Immediate: fire once per backend when a connection failure is matched
   - name: connection_failed
     file: /var/log/nginx/error.log
     pattern: 'connect failed.*: (?P<backend>[0-9a-z.]+)'
     group_by: backend
     condition:
-      type: seen
+      type: match
     cooldown: 0
     action:
       type: shell

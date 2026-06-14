@@ -93,8 +93,8 @@ func (c *ConditionSpec) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	switch discriminator.Type {
-	case "seen":
-		v := &condition.SeenCondition{}
+	case "match":
+		v := &condition.MatchCondition{}
 		if err := value.Decode(v); err != nil {
 			return err
 		}

@@ -7,32 +7,32 @@ import (
 )
 
 func TestThresholdCondition(t *testing.T) {
-	threshold := 5
+	count := 5
 	window := 60
-	condition := &ThresholdCondition{Threshold: uint(threshold), Window: uint(window)}
+	condition := &ThresholdCondition{Count: uint(count), Window: uint(window)}
 	err := condition.Validate()
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	conditionStr := fmt.Sprintf("threshold(threshold=%d, window=%d)", threshold, window)
+	conditionStr := fmt.Sprintf("threshold(count=%d, window=%d)", count, window)
 	if condition.String() != conditionStr {
 		t.Fatalf("expected '%s', got %s", conditionStr, condition.String())
 	}
 }
 
-func TestThresholdConditionValidateFailThreshold(t *testing.T) {
-	condition := &ThresholdCondition{Threshold: 0, Window: 60}
+func TestThresholdConditionValidateFailCount(t *testing.T) {
+	condition := &ThresholdCondition{Count: 0, Window: 60}
 	err := condition.Validate()
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
-	if err.Error() != "`threshold` must be greater than 0" {
-		t.Fatalf("expected '`threshold` must be greater than 0', got %s", err.Error())
+	if err.Error() != "`count` must be greater than 0" {
+		t.Fatalf("expected '`count` must be greater than 0', got %s", err.Error())
 	}
 }
 
 func TestThresholdConditionValidateFailWindow(t *testing.T) {
-	condition := &ThresholdCondition{Threshold: 5, Window: 0}
+	condition := &ThresholdCondition{Count: 5, Window: 0}
 	err := condition.Validate()
 	if err == nil {
 		t.Fatalf("expected error, got nil")
@@ -43,7 +43,7 @@ func TestThresholdConditionValidateFailWindow(t *testing.T) {
 }
 
 func TestThresholdConditionEvalNotMet(t *testing.T) {
-	condition := &ThresholdCondition{Threshold: 3, Window: 60}
+	condition := &ThresholdCondition{Count: 3, Window: 60}
 	now := time.Now()
 	ctx := &ConditionContext{
 		Timestamp: now,
@@ -59,7 +59,7 @@ func TestThresholdConditionEvalNotMet(t *testing.T) {
 }
 
 func TestThresholdConditionEvalMet(t *testing.T) {
-	condition := &ThresholdCondition{Threshold: 3, Window: 60}
+	condition := &ThresholdCondition{Count: 3, Window: 60}
 	now := time.Now()
 	ctx := &ConditionContext{
 		State: &ConditionState{},
@@ -82,7 +82,7 @@ func TestThresholdConditionEvalMet(t *testing.T) {
 }
 
 func TestThresholdConditionEvalPrunesOutsideWindow(t *testing.T) {
-	condition := &ThresholdCondition{Threshold: 2, Window: 10}
+	condition := &ThresholdCondition{Count: 2, Window: 10}
 	now := time.Now()
 	ctx := &ConditionContext{
 		State: &ConditionState{},

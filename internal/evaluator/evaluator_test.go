@@ -61,7 +61,7 @@ func newTestRule(t *testing.T, opts func(*config.Rule)) *config.Rule {
 		Name:      "test_rule",
 		File:      "/tmp/test.log",
 		Pattern:   testPatternWithBackend,
-		Condition: config.ConditionSpec{Value: &condition.SeenCondition{}},
+		Condition: config.ConditionSpec{Value: &condition.MatchCondition{}},
 		Action:    config.ActionSpec{Value: newRecordingAction()},
 	}
 	if opts != nil {
@@ -211,15 +211,15 @@ func TestProcessGroupBySeparateState(t *testing.T) {
 	if actionCtx.Group != "db" {
 		t.Fatalf("expected group db, got %q", actionCtx.Group)
 	}
-	if actionCtx.Vars["backend"] != "db" {
-		t.Fatalf("expected backend=db, got %q", actionCtx.Vars["backend"])
+	if actionCtx.Captures["backend"] != "db" {
+		t.Fatalf("expected backend=db, got %q", actionCtx.Captures["backend"])
 	}
 }
 
 func TestProcessThresholdNotMetThenMet(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
 		r.Condition = config.ConditionSpec{
-			Value: &condition.ThresholdCondition{Threshold: 2, Window: 60},
+			Value: &condition.ThresholdCondition{Count: 2, Window: 60},
 		}
 	}))
 	now := time.Now()

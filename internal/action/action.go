@@ -12,7 +12,7 @@ type ActionContext struct {
 	GroupBy   string
 	Group     string
 	Timestamp time.Time
-	Vars      map[string]string
+	Captures  map[string]string
 }
 
 type RunOptions struct {

@@ -6,7 +6,7 @@ rules:
     cooldown: 60
     condition:
       type: threshold
-      threshold: 5
+      count: 5
       window: 60
     action:
       type: log

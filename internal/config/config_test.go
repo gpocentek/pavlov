@@ -22,7 +22,7 @@ func validRule() *Rule {
 		GroupBy:  "backend",
 		Cooldown: 60,
 		Condition: ConditionSpec{
-			Value: &condition.ThresholdCondition{Threshold: 5, Window: 60},
+			Value: &condition.ThresholdCondition{Count: 5, Window: 60},
 		},
 		Action: ActionSpec{
 			Value: &action.LogAction{Template: "fake template"},
@@ -54,10 +54,10 @@ func assertValidateError(t *testing.T, cfg *Config, wantSubstring string) error 
 	return err
 }
 
-func seenRule() *Rule {
+func matchRule() *Rule {
 	rule := validRule()
 	rule.GroupBy = ""
-	rule.Condition = ConditionSpec{Value: &condition.SeenCondition{}}
+	rule.Condition = ConditionSpec{Value: &condition.MatchCondition{}}
 	rule.Action = ActionSpec{Value: &action.LogAction{Template: "rule={{ .Rule }}"}}
 	return rule
 }
@@ -260,7 +260,7 @@ func TestRuleInvalidActionType(t *testing.T) {
     pattern: 'timeout'
     condition:
       type: threshold
-      threshold: 5
+      count: 5
       window: 60
     action:
       type: invalid
@@ -270,8 +270,8 @@ func TestRuleInvalidActionType(t *testing.T) {
 	}
 }
 
-func TestConditionSpecSeenValid(t *testing.T) {
-	data := unmarshalConditionYAML(t, `type: seen`)
+func TestConditionSpecMatchValid(t *testing.T) {
+	data := unmarshalConditionYAML(t, `type: match`)
 	if err := data.Value.Validate(); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -279,7 +279,7 @@ func TestConditionSpecSeenValid(t *testing.T) {
 
 func TestConditionSpecThresholdValid(t *testing.T) {
 	data := unmarshalConditionYAML(t, `type: threshold
-threshold: 5
+count: 5
 window: 60
 `)
 	if err := data.Value.Validate(); err != nil {
@@ -304,16 +304,16 @@ func TestConditionSpecUnknownType(t *testing.T) {
 }
 
 func TestConditionSpecThresholdInvalid(t *testing.T) {
-	c := &condition.ThresholdCondition{Threshold: 0, Window: 60}
+	c := &condition.ThresholdCondition{Count: 0, Window: 60}
 	if err := c.Validate(); err == nil {
 		t.Fatal("expected validation error, got nil")
-	} else if !strings.Contains(err.Error(), "`threshold` must be greater than 0") {
-		t.Fatalf("expected threshold validation error, got %v", err)
+	} else if !strings.Contains(err.Error(), "`count` must be greater than 0") {
+		t.Fatalf("expected count validation error, got %v", err)
 	}
 }
 
 func TestConditionSpecThresholdInvalidWindow(t *testing.T) {
-	c := &condition.ThresholdCondition{Threshold: 5, Window: 0}
+	c := &condition.ThresholdCondition{Count: 5, Window: 0}
 	if err := c.Validate(); err == nil {
 		t.Fatal("expected validation error, got nil")
 	} else if !strings.Contains(err.Error(), "`window` must be greater than 0") {
@@ -331,7 +331,7 @@ func TestConditionSpecAbsenceInvalid(t *testing.T) {
 }
 
 func TestConditionSpecMissingType(t *testing.T) {
-	err := yaml.Unmarshal([]byte(`threshold: 5
+	err := yaml.Unmarshal([]byte(`count: 5
 window: 60
 `), new(ConditionSpec))
 	if !strings.Contains(err.Error(), `condition: unknown type ""`) {
@@ -341,7 +341,7 @@ window: 60
 
 func TestConditionSpecMalformedThreshold(t *testing.T) {
 	err := yaml.Unmarshal([]byte(`type: threshold
-threshold: not-a-number
+count: not-a-number
 window: 60
 `), new(ConditionSpec))
 	if err == nil {
@@ -486,9 +486,9 @@ func TestStringMethods(t *testing.T) {
 		t.Fatalf("expected %q, got %q", expected, rule.String())
 	}
 
-	condition := unmarshalConditionYAML(t, `type: seen`)
-	if condition.String() != "seen()" {
-		t.Fatalf("expected 'seen()', got %q", condition.String())
+	condition := unmarshalConditionYAML(t, `type: match`)
+	if condition.String() != "match()" {
+		t.Fatalf("expected 'match()', got %q", condition.String())
 	}
 
 	action := unmarshalActionYAML(t, `type: log
@@ -502,15 +502,15 @@ template: "hello"
 	}
 }
 
-func TestRuleValidSeenCondition(t *testing.T) {
-	rule := seenRule()
+func TestRuleValidMatchCondition(t *testing.T) {
+	rule := matchRule()
 	rule.Name = "connection_failed"
 	rule.Pattern = "connect failed"
 	assertValidateOK(t, configWithRules(rule))
 }
 
 func TestRuleValidAbsenceCondition(t *testing.T) {
-	rule := seenRule()
+	rule := matchRule()
 	rule.Name = "heartbeat_missing"
 	rule.Pattern = "heartbeat ok"
 	rule.Condition = ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
@@ -523,7 +523,7 @@ func TestRuleValidShellAction(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	rule := seenRule()
+	rule := matchRule()
 	rule.Name = "alert"
 	rule.Pattern = "error"
 	rule.Action = ActionSpec{Value: &action.ShellAction{Script: script}}
@@ -531,7 +531,7 @@ func TestRuleValidShellAction(t *testing.T) {
 }
 
 func TestRuleFilePathAbsolute(t *testing.T) {
-	rule := seenRule()
+	rule := matchRule()
 	rule.Name = "test_rule"
 	rule.File = "error.log"
 	cfg := assertValidateOK(t, configWithRules(rule))
@@ -555,21 +555,21 @@ func TestValidateSetsPatternRegexp(t *testing.T) {
 }
 
 func TestRuleInvalidThresholdCondition(t *testing.T) {
-	rule := seenRule()
+	rule := matchRule()
 	rule.Pattern = "timeout"
-	rule.Condition = ConditionSpec{Value: &condition.ThresholdCondition{Threshold: 0, Window: 60}}
-	_ = assertValidateError(t, configWithRules(rule), "`threshold` must be greater than 0")
+	rule.Condition = ConditionSpec{Value: &condition.ThresholdCondition{Count: 0, Window: 60}}
+	_ = assertValidateError(t, configWithRules(rule), "`count` must be greater than 0")
 }
 
 func TestRuleInvalidThresholdWindow(t *testing.T) {
-	rule := seenRule()
+	rule := matchRule()
 	rule.Pattern = "timeout"
-	rule.Condition = ConditionSpec{Value: &condition.ThresholdCondition{Threshold: 5, Window: 0}}
+	rule.Condition = ConditionSpec{Value: &condition.ThresholdCondition{Count: 5, Window: 0}}
 	_ = assertValidateError(t, configWithRules(rule), "`window` must be greater than 0")
 }
 
 func TestRuleInvalidAbsenceCondition(t *testing.T) {
-	rule := seenRule()
+	rule := matchRule()
 	rule.Name = "heartbeat_missing"
 	rule.Pattern = "heartbeat ok"
 	rule.Condition = ConditionSpec{Value: &condition.AbsenceCondition{Duration: 0}}
@@ -577,14 +577,14 @@ func TestRuleInvalidAbsenceCondition(t *testing.T) {
 }
 
 func TestRuleInvalidLogTemplate(t *testing.T) {
-	rule := seenRule()
+	rule := matchRule()
 	rule.Name = "test_rule"
 	rule.Action = ActionSpec{Value: &action.LogAction{Template: "{{invalid"}}
 	_ = assertValidateError(t, configWithRules(rule), "failed to parse log template")
 }
 
 func TestRuleInvalidShellActionMissingScript(t *testing.T) {
-	rule := seenRule()
+	rule := matchRule()
 	rule.Name = "alert"
 	rule.Action = ActionSpec{Value: &action.ShellAction{Script: "/tmp/does-not-exist.sh"}}
 	_ = assertValidateError(t, configWithRules(rule), "does not exist")
@@ -596,7 +596,7 @@ func TestRuleInvalidShellActionNotExecutable(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	rule := seenRule()
+	rule := matchRule()
 	rule.Name = "alert"
 	rule.Action = ActionSpec{Value: &action.ShellAction{Script: script}}
 	_ = assertValidateError(t, configWithRules(rule), "is not executable")
@@ -606,24 +606,24 @@ func TestRuleFileMissingOK(t *testing.T) {
 	tmpDir := t.TempDir()
 	missingFile := filepath.Join(tmpDir, "does-not-exist.log")
 
-	rule := seenRule()
+	rule := matchRule()
 	rule.Name = "test_rule"
 	rule.File = missingFile
 	assertValidateOK(t, configWithRules(rule))
 }
 
 func TestValidateMultipleRulesSecondInvalid(t *testing.T) {
-	valid := seenRule()
+	valid := matchRule()
 	valid.Name = "valid_rule"
 
-	invalid := seenRule()
+	invalid := matchRule()
 	invalid.Name = ""
 
 	_ = assertValidateError(t, configWithRules(valid, invalid), "rule 1: `name` is required")
 }
 
 func TestRuleInvalidShellActionMissingScriptField(t *testing.T) {
-	rule := seenRule()
+	rule := matchRule()
 	rule.Name = "alert"
 	rule.Action = ActionSpec{Value: &action.ShellAction{}}
 	_ = assertValidateError(t, configWithRules(rule), "`script` is required")

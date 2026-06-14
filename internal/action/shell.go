@@ -48,8 +48,8 @@ func (a *ShellAction) Act(ctx context.Context, actionCtx *ActionContext) {
 	env = append(env, fmt.Sprintf("PAVLOV_TS=%d", actionCtx.Timestamp.Unix()))
 	env = append(env, fmt.Sprintf("PAVLOV_GROUP=%s", actionCtx.Group))
 	env = append(env, fmt.Sprintf("PAVLOV_GROUP_BY=%s", actionCtx.GroupBy))
-	for k, v := range actionCtx.Vars {
-		env = append(env, fmt.Sprintf("PAVLOV_VAR_%s=%s", k, v))
+	for k, v := range actionCtx.Captures {
+		env = append(env, fmt.Sprintf("PAVLOV_CAPTURE_%s=%s", k, v))
 	}
 	cmd.Env = env
 	var stdout, stderr bytes.Buffer
