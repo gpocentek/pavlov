@@ -1,6 +1,9 @@
 package action
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type ActionContext struct {
 	Rule      string
@@ -12,7 +15,24 @@ type ActionContext struct {
 	Vars      map[string]string
 }
 
+type ActionConfig struct {
+	Timeout      *uint `yaml:"timeout"`
+	StopPrevious *bool `yaml:"stop_previous"`
+}
+
 type Action interface {
-	Act(*ActionContext)
+	GetActionConfig() ActionConfig
+	Act(context.Context, *ActionContext)
 	Validate() error
+}
+
+func setDefaultActionConfigValues(a *ActionConfig) {
+	if a.Timeout == nil {
+		d := uint(0)
+		a.Timeout = &d
+	}
+	if a.StopPrevious == nil {
+		b := false
+		a.StopPrevious = &b
+	}
 }

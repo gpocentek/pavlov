@@ -2,6 +2,7 @@ package evaluator
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"testing"
 	"time"
@@ -13,17 +14,41 @@ import (
 
 const testPatternWithBackend = `error: (?P<backend>[a-z]+)`
 
-// recordingAction is a test action that records the action context
+// recordingAction is a test action that records the action context.
+// When Act receives a context with a deadline, it blocks until cancelled
+// and optionally reports ctx.Err() on finishedCh. This is useful for testing
+// timeout handling in the evaluator.
 type recordingAction struct {
-	ch chan *action.ActionContext
+	action.ActionConfig
+	ch         chan *action.ActionContext
+	finishedCh chan error
 }
 
 func newRecordingAction() *recordingAction {
-	return &recordingAction{ch: make(chan *action.ActionContext, 4)}
+	timeout := uint(0)
+	stopPrevious := false
+	return &recordingAction{
+		ActionConfig: action.ActionConfig{
+			Timeout:      &timeout,
+			StopPrevious: &stopPrevious,
+		},
+		ch: make(chan *action.ActionContext, 4),
+	}
 }
 
-func (a *recordingAction) Act(ctx *action.ActionContext) {
-	a.ch <- ctx
+func (a *recordingAction) GetActionConfig() action.ActionConfig {
+	return a.ActionConfig
+}
+
+func (a *recordingAction) Act(ctx context.Context, actionCtx *action.ActionContext) {
+	a.ch <- actionCtx
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		return
+	}
+	<-ctx.Done()
+	if a.finishedCh != nil {
+		a.finishedCh <- ctx.Err()
+	}
 }
 
 func (a *recordingAction) Validate() error {
@@ -389,5 +414,34 @@ func TestEnqueueDropsWhenBufferFull(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("Enqueue blocked on full buffer")
+	}
+}
+
+func TestTimeoutKillsRunningAction(t *testing.T) {
+	recorder := newRecordingAction()
+	*recorder.Timeout = 1
+	recorder.finishedCh = make(chan error, 1)
+
+	ev := NewEvaluator(newTestRule(t, func(r *config.Rule) {
+		r.Action = config.ActionConfig{Value: recorder}
+	}))
+
+	now := time.Now()
+	if got := ev.process(Event{Line: "error: api", Timestamp: now}); !got {
+		t.Fatalf("expected true, got %v", got)
+	}
+
+	actionCtx := waitForRecordedAction(t, recorder.ch)
+	if actionCtx.Line != "error: api" {
+		t.Fatalf("expected line error: api, got %q", actionCtx.Line)
+	}
+
+	select {
+	case err := <-recorder.finishedCh:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("expected deadline exceeded, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected action to be cancelled by timeout")
 	}
 }

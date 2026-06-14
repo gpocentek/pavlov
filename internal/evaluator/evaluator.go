@@ -144,7 +144,24 @@ func (e *Evaluator) tryFire(state *condition.GroupState, actionCtx *action.Actio
 
 	slog.Info("Condition met, firing action", "rule", e.Rule.Name, "group", actionCtx.Group)
 	state.LastFired = actionCtx.Timestamp
-	go e.Rule.Action.Value.Act(actionCtx)
+
+	actionConfig := e.Rule.Action.Value.GetActionConfig()
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if *actionConfig.Timeout > 0 {
+		ctx, cancel = context.WithTimeout(
+			context.Background(),
+			time.Duration(*actionConfig.Timeout)*time.Second,
+		)
+	} else {
+		ctx = context.Background()
+	}
+	go func() {
+		if cancel != nil {
+			defer cancel()
+		}
+		e.Rule.Action.Value.Act(ctx, actionCtx)
+	}()
 	return true
 }
 

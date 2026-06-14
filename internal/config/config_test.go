@@ -80,6 +80,25 @@ func unmarshalActionYAML(t *testing.T, yamlData string) ActionConfig {
 	return data
 }
 
+func assertActionConfig(t *testing.T, cfg *action.ActionConfig, wantTimeout uint, wantStopPrevious bool) {
+	t.Helper()
+	if *cfg.Timeout != wantTimeout {
+		t.Fatalf("Timeout should be %d, got %d", wantTimeout, *cfg.Timeout)
+	}
+	if *cfg.StopPrevious != wantStopPrevious {
+		t.Fatalf("StopPrevious should be %t, got %t", wantStopPrevious, *cfg.StopPrevious)
+	}
+}
+
+func tempExecutableScript(t *testing.T) string {
+	t.Helper()
+	script := filepath.Join(t.TempDir(), "alert.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+	return script
+}
+
 func testdataPath(t *testing.T, name string) string {
 	t.Helper()
 	return filepath.Join("testdata", name)
@@ -340,25 +359,74 @@ duration: not-a-number
 }
 
 func TestActionConfigLogValid(t *testing.T) {
-	data := unmarshalActionYAML(t, `type: log
+	tests := []struct {
+		name             string
+		yaml             string
+		wantTimeout      uint
+		wantStopPrevious bool
+	}{
+		{
+			name: "defaults",
+			yaml: `type: log
 template: "rule={{ .Rule }}"
-`)
-	if err := data.Value.Validate(); err != nil {
-		t.Fatalf("expected no error, got %v", err)
+`,
+			wantTimeout:      0,
+			wantStopPrevious: false,
+		},
+		{
+			name: "explicit values",
+			yaml: `type: log
+template: "rule={{ .Rule }}"
+timeout: 10
+stop_previous: true
+`,
+			wantTimeout:      10,
+			wantStopPrevious: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := unmarshalActionYAML(t, tt.yaml)
+			if err := data.Value.Validate(); err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			assertActionConfig(t, &data.Value.(*action.LogAction).ActionConfig, tt.wantTimeout, tt.wantStopPrevious)
+		})
 	}
 }
 
 func TestActionConfigShellValid(t *testing.T) {
-	script := filepath.Join(t.TempDir(), "alert.sh")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0755); err != nil {
-		t.Fatalf("expected no error, got %v", err)
+	script := tempExecutableScript(t)
+	tests := []struct {
+		name             string
+		extraYAML        string
+		wantTimeout      uint
+		wantStopPrevious bool
+	}{
+		{
+			name:             "defaults",
+			wantTimeout:      0,
+			wantStopPrevious: false,
+		},
+		{
+			name: "explicit values",
+			extraYAML: `
+timeout: 10
+stop_previous: true`,
+			wantTimeout:      10,
+			wantStopPrevious: true,
+		},
 	}
-
-	data := unmarshalActionYAML(t, `type: shell
-script: `+script+`
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := unmarshalActionYAML(t, `type: shell
+script: `+script+tt.extraYAML+`
 `)
-	if err := data.Value.Validate(); err != nil {
-		t.Fatalf("expected no error, got %v", err)
+			if err := data.Value.Validate(); err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			assertActionConfig(t, &data.Value.(*action.ShellAction).ActionConfig, tt.wantTimeout, tt.wantStopPrevious)
+		})
 	}
 }
 
@@ -426,6 +494,9 @@ func TestStringMethods(t *testing.T) {
 	action := unmarshalActionYAML(t, `type: log
 template: "hello"
 `)
+	if err := action.Value.Validate(); err != nil {
+		t.Fatal(err)
+	}
 	if !strings.HasPrefix(action.String(), "log(") {
 		t.Fatalf("expected log action string, got %q", action.String())
 	}
