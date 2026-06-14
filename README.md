@@ -151,7 +151,20 @@ Absence rules are evaluated every second (not configurable yet). On startup, the
 
 ### Actions
 
-Every action has a `type` field.
+Every action has a `type` field. All action types also accept optional execution controls:
+
+| Field            | Default | Description |
+|------------------|---------|-------------|
+| `timeout`        | `0`     | Maximum seconds an action may run. `0` means no limit. When exceeded, the action's context is cancelled. For `shell` actions, the script and any child processes are killed. |
+| `stop_previous`  | `false` | When `true`, a new firing cancels any still-running action from a previous firing before starting the new one. Cancellation is scoped per group when `group_by` is set; otherwise one in-flight action per rule. |
+
+```yaml
+action:
+  type: shell
+  script: ./scripts/alert.sh
+  timeout: 10
+  stop_previous: true
+```
 
 #### `log`
 
@@ -199,7 +212,7 @@ The script receives these environment variables:
 | `PAVLOV_GROUP_BY` | `group_by` field value |
 | `PAVLOV_VAR_<name>` | One variable per named capture group (e.g. `PAVLOV_VAR_backend`) |
 
-Script stdout and stderr are captured in Pavlov's logs on failure.
+Script stdout and stderr are captured in Pavlov's logs on failure. Timeouts and cancellation kill the script's entire process group (not just the top-level process), so child processes started by the script do not keep running after a timeout or `stop_previous` cancel.
 
 ## Example config
 
@@ -232,6 +245,8 @@ rules:
     action:
       type: shell
       script: ./scripts/run.sh
+      timeout: 10
+      stop_previous: true
 
   # Liveness: fire when "heartbeat ok" has not appeared for 10 seconds
   - name: heartbeat_missing
