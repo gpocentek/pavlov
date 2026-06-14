@@ -20,7 +20,7 @@ func TestSeenConditionEval(t *testing.T) {
 	now := time.Now()
 	ctx := &ConditionContext{
 		Timestamp: now,
-		State:     &GroupState{},
+		State:     &ConditionState{},
 	}
 
 	if got := (&SeenCondition{}).Eval(ctx); got != true {

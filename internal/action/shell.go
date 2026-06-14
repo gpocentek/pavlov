@@ -13,18 +13,18 @@ import (
 )
 
 type ShellAction struct {
-	ActionConfig `yaml:",inline"`
-	Script       string `yaml:"script"`
+	Options RunOptions `yaml:",inline"`
+	Script  string     `yaml:"script"`
 }
 
-func (a *ShellAction) GetActionConfig() ActionConfig {
-	return a.ActionConfig
+func (a *ShellAction) RunOptions() RunOptions {
+	return a.Options
 }
 
 func (a *ShellAction) String() string {
 	return fmt.Sprintf(
 		"shell(script=%s, timeout=%d, stop_previous=%t)",
-		a.Script, *a.Timeout, *a.StopPrevious)
+		a.Script, *a.Options.Timeout, *a.Options.StopPrevious)
 }
 
 func (a *ShellAction) Act(ctx context.Context, actionCtx *ActionContext) {
@@ -62,7 +62,7 @@ func (a *ShellAction) Act(ctx context.Context, actionCtx *ActionContext) {
 				"shell action timed out",
 				"rule", actionCtx.Rule,
 				"script", a.Script,
-				"timeout", *a.Timeout,
+				"timeout", *a.Options.Timeout,
 				"stdout", stdout.String(),
 				"stderr", stderr.String(),
 			)
@@ -101,7 +101,7 @@ func (a *ShellAction) Validate() error {
 		return fmt.Errorf("script %s is not executable", a.Script)
 	}
 
-	setDefaultActionConfigValues(&a.ActionConfig)
+	setDefaultRunOptions(&a.Options)
 
 	return nil
 }

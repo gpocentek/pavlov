@@ -19,7 +19,7 @@ const testPatternWithBackend = `error: (?P<backend>[a-z]+)`
 // and optionally reports ctx.Err() on finishedCh. This is useful for testing
 // timeout handling in the evaluator.
 type recordingAction struct {
-	action.ActionConfig
+	Options    action.RunOptions
 	ch         chan *action.ActionContext
 	finishedCh chan error
 }
@@ -28,7 +28,7 @@ func newRecordingAction() *recordingAction {
 	timeout := uint(0)
 	stopPrevious := false
 	return &recordingAction{
-		ActionConfig: action.ActionConfig{
+		Options: action.RunOptions{
 			Timeout:      &timeout,
 			StopPrevious: &stopPrevious,
 		},
@@ -36,8 +36,8 @@ func newRecordingAction() *recordingAction {
 	}
 }
 
-func (a *recordingAction) GetActionConfig() action.ActionConfig {
-	return a.ActionConfig
+func (a *recordingAction) RunOptions() action.RunOptions {
+	return a.Options
 }
 
 func (a *recordingAction) Act(ctx context.Context, actionCtx *action.ActionContext) {
@@ -61,8 +61,8 @@ func newTestRule(t *testing.T, opts func(*config.Rule)) *config.Rule {
 		Name:      "test_rule",
 		File:      "/tmp/test.log",
 		Pattern:   testPatternWithBackend,
-		Condition: config.ConditionConfig{Value: &condition.SeenCondition{}},
-		Action:    config.ActionConfig{Value: newRecordingAction()},
+		Condition: config.ConditionSpec{Value: &condition.SeenCondition{}},
+		Action:    config.ActionSpec{Value: newRecordingAction()},
 	}
 	if opts != nil {
 		opts(rule)
@@ -103,21 +103,21 @@ func assertNoRecordedAction(t *testing.T, ch <-chan *action.ActionContext) {
 func TestNewEvaluatorAbsenceSeed(t *testing.T) {
 	rule := newTestRule(t, func(r *config.Rule) {
 		r.Pattern = "heartbeat ok"
-		r.Condition = config.ConditionConfig{Value: &condition.AbsenceCondition{Duration: 10}}
+		r.Condition = config.ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
 	})
 
 	ev := NewEvaluator(rule)
-	if _, ok := ev.States[""]; !ok {
+	if _, ok := ev.Instances[""]; !ok {
 		t.Fatal(`expected "" state to be seeded when group_by is empty`)
 	}
-	if len(ev.States) != 1 {
-		t.Fatalf("expected 1 state, got %d", len(ev.States))
+	if len(ev.Instances) != 1 {
+		t.Fatalf("expected 1 state, got %d", len(ev.Instances))
 	}
 
 	rule.GroupBy = "service"
 	ev = NewEvaluator(rule)
-	if len(ev.States) != 0 {
-		t.Fatalf("expected no seeded states when group_by is set, got %d", len(ev.States))
+	if len(ev.Instances) != 0 {
+		t.Fatalf("expected no seeded states when group_by is set, got %d", len(ev.Instances))
 	}
 }
 
@@ -125,7 +125,7 @@ func TestProcessNoMatch(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, nil))
 	now := time.Now()
 
-	if got := ev.process(Event{Line: "nothing here", Timestamp: now}); got {
+	if got := ev.process(LineEvent{Line: "nothing here", Timestamp: now}); got {
 		t.Fatalf("expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
@@ -136,7 +136,7 @@ func TestProcessSeenFires(t *testing.T) {
 	now := time.Now()
 	line := "error: api"
 
-	if got := ev.process(Event{Line: line, Timestamp: now}); !got {
+	if got := ev.process(LineEvent{Line: line, Timestamp: now}); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 
@@ -150,8 +150,8 @@ func TestProcessSeenFires(t *testing.T) {
 	if actionCtx.Group != "" {
 		t.Fatalf("expected empty group, got %q", actionCtx.Group)
 	}
-	if ev.States[""].LastFired != now {
-		t.Fatalf("expected LastFired %v, got %v", now, ev.States[""].LastFired)
+	if ev.Instances[""].Run.LastFired != now {
+		t.Fatalf("expected LastFired %v, got %v", now, ev.Instances[""].Run.LastFired)
 	}
 }
 
@@ -160,13 +160,13 @@ func TestProcessSeenCooldownBlocks(t *testing.T) {
 		r.Cooldown = 60
 	}))
 	now := time.Now()
-	ev.States[""] = &condition.GroupState{LastFired: now.Add(-10 * time.Second)}
+	ev.Instances[""] = &instanceState{Run: runState{LastFired: now.Add(-10 * time.Second)}}
 
-	if got := ev.process(Event{Line: "error: api", Timestamp: now}); got {
+	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now}); got {
 		t.Fatalf("expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
-	if ev.States[""].LastFired != now.Add(-10*time.Second) {
+	if ev.Instances[""].Run.LastFired != now.Add(-10*time.Second) {
 		t.Fatal("expected LastFired unchanged during cooldown")
 	}
 }
@@ -176,14 +176,14 @@ func TestProcessSeenCooldownExpired(t *testing.T) {
 		r.Cooldown = 60
 	}))
 	now := time.Now()
-	ev.States[""] = &condition.GroupState{LastFired: now.Add(-61 * time.Second)}
+	ev.Instances[""] = &instanceState{Run: runState{LastFired: now.Add(-61 * time.Second)}}
 
-	if got := ev.process(Event{Line: "error: api", Timestamp: now}); !got {
+	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now}); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 	waitForRecordedAction(t, recorder.ch)
-	if ev.States[""].LastFired != now {
-		t.Fatalf("expected LastFired %v, got %v", now, ev.States[""].LastFired)
+	if ev.Instances[""].Run.LastFired != now {
+		t.Fatalf("expected LastFired %v, got %v", now, ev.Instances[""].Run.LastFired)
 	}
 }
 
@@ -194,17 +194,17 @@ func TestProcessGroupBySeparateState(t *testing.T) {
 	}))
 	now := time.Now()
 
-	if got := ev.process(Event{Line: "error: api", Timestamp: now}); !got {
+	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now}); !got {
 		t.Fatalf("api: expected true, got %v", got)
 	}
 	waitForRecordedAction(t, recorder.ch)
 
-	if got := ev.process(Event{Line: "error: api", Timestamp: now.Add(time.Second)}); got {
+	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now.Add(time.Second)}); got {
 		t.Fatalf("api cooldown: expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
 
-	if got := ev.process(Event{Line: "error: db", Timestamp: now.Add(2 * time.Second)}); !got {
+	if got := ev.process(LineEvent{Line: "error: db", Timestamp: now.Add(2 * time.Second)}); !got {
 		t.Fatalf("db: expected true, got %v", got)
 	}
 	actionCtx := waitForRecordedAction(t, recorder.ch)
@@ -218,21 +218,21 @@ func TestProcessGroupBySeparateState(t *testing.T) {
 
 func TestProcessThresholdNotMetThenMet(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
-		r.Condition = config.ConditionConfig{
+		r.Condition = config.ConditionSpec{
 			Value: &condition.ThresholdCondition{Threshold: 2, Window: 60},
 		}
 	}))
 	now := time.Now()
 
-	if got := ev.process(Event{Line: "error: api", Timestamp: now}); got {
+	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now}); got {
 		t.Fatalf("first event: expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
-	if len(ev.States[""].Window) != 1 {
-		t.Fatalf("expected window length 1, got %d", len(ev.States[""].Window))
+	if len(ev.Instances[""].Condition.MatchTimes) != 1 {
+		t.Fatalf("expected match times length 1, got %d", len(ev.Instances[""].Condition.MatchTimes))
 	}
 
-	if got := ev.process(Event{Line: "error: api", Timestamp: now.Add(time.Second)}); !got {
+	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now.Add(time.Second)}); !got {
 		t.Fatalf("second event: expected true, got %v", got)
 	}
 	waitForRecordedAction(t, recorder.ch)
@@ -241,16 +241,16 @@ func TestProcessThresholdNotMetThenMet(t *testing.T) {
 func TestProcessAbsenceUpdatesLastSeenNoFire(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
 		r.Pattern = "heartbeat ok"
-		r.Condition = config.ConditionConfig{Value: &condition.AbsenceCondition{Duration: 10}}
+		r.Condition = config.ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
 	}))
 	now := time.Now()
 
-	if got := ev.process(Event{Line: "heartbeat ok", Timestamp: now}); got {
+	if got := ev.process(LineEvent{Line: "heartbeat ok", Timestamp: now}); got {
 		t.Fatalf("expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
-	if ev.States[""].LastSeen != now {
-		t.Fatalf("expected LastSeen %v, got %v", now, ev.States[""].LastSeen)
+	if ev.Instances[""].Condition.LastSeen != now {
+		t.Fatalf("expected LastSeen %v, got %v", now, ev.Instances[""].Condition.LastSeen)
 	}
 }
 
@@ -258,48 +258,48 @@ func TestProcessAbsenceGroupByCreatesPerGroupState(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
 		r.Pattern = `heartbeat ok (?P<service>[a-z]+)`
 		r.GroupBy = "service"
-		r.Condition = config.ConditionConfig{Value: &condition.AbsenceCondition{Duration: 10}}
+		r.Condition = config.ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
 	}))
 	now := time.Now()
 
-	if got := ev.process(Event{Line: "heartbeat ok api", Timestamp: now}); got {
+	if got := ev.process(LineEvent{Line: "heartbeat ok api", Timestamp: now}); got {
 		t.Fatalf("expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
-	if _, ok := ev.States["api"]; !ok {
+	if _, ok := ev.Instances["api"]; !ok {
 		t.Fatal("expected api state to be created")
 	}
-	if ev.States["api"].LastSeen != now {
-		t.Fatalf("expected LastSeen %v, got %v", now, ev.States["api"].LastSeen)
+	if ev.Instances["api"].Condition.LastSeen != now {
+		t.Fatalf("expected LastSeen %v, got %v", now, ev.Instances["api"].Condition.LastSeen)
 	}
-	if _, ok := ev.States[""]; ok {
+	if _, ok := ev.Instances[""]; ok {
 		t.Fatal(`did not expect "" state when group_by is set`)
 	}
 }
 
-func TestCheckGroupAbsenceNotMet(t *testing.T) {
+func TestCheckInstanceAbsenceNotMet(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
 		r.Pattern = "heartbeat ok"
-		r.Condition = config.ConditionConfig{Value: &condition.AbsenceCondition{Duration: 10}}
+		r.Condition = config.ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
 	}))
 	now := time.Now()
-	state := &condition.GroupState{LastSeen: now.Add(-5 * time.Second)}
+	state := &instanceState{Condition: &condition.ConditionState{LastSeen: now.Add(-5 * time.Second)}}
 
-	if got := ev.checkGroupAbsence("", state, now); got {
+	if got := ev.checkInstanceAbsence("", state, now); got {
 		t.Fatalf("expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
 }
 
-func TestCheckGroupAbsenceFires(t *testing.T) {
+func TestCheckInstanceAbsenceFires(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
 		r.Pattern = "heartbeat ok"
-		r.Condition = config.ConditionConfig{Value: &condition.AbsenceCondition{Duration: 10}}
+		r.Condition = config.ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
 	}))
 	now := time.Now()
-	state := &condition.GroupState{LastSeen: now.Add(-15 * time.Second)}
+	state := &instanceState{Condition: &condition.ConditionState{LastSeen: now.Add(-15 * time.Second)}}
 
-	if got := ev.checkGroupAbsence("", state, now); !got {
+	if got := ev.checkInstanceAbsence("", state, now); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 
@@ -310,24 +310,24 @@ func TestCheckGroupAbsenceFires(t *testing.T) {
 	if actionCtx.Group != "" {
 		t.Fatalf("expected empty group, got %q", actionCtx.Group)
 	}
-	if state.LastFired != now {
-		t.Fatalf("expected LastFired %v, got %v", now, state.LastFired)
+	if state.Run.LastFired != now {
+		t.Fatalf("expected LastFired %v, got %v", now, state.Run.LastFired)
 	}
 }
 
-func TestCheckGroupAbsenceCooldownBlocks(t *testing.T) {
+func TestCheckInstanceAbsenceCooldownBlocks(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
 		r.Pattern = "heartbeat ok"
 		r.Cooldown = 60
-		r.Condition = config.ConditionConfig{Value: &condition.AbsenceCondition{Duration: 10}}
+		r.Condition = config.ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
 	}))
 	now := time.Now()
-	state := &condition.GroupState{
-		LastSeen:  now.Add(-15 * time.Second),
-		LastFired: now.Add(-10 * time.Second),
+	state := &instanceState{
+		Condition: &condition.ConditionState{LastSeen: now.Add(-15 * time.Second)},
+		Run:       runState{LastFired: now.Add(-10 * time.Second)},
 	}
 
-	if got := ev.checkGroupAbsence("", state, now); got {
+	if got := ev.checkInstanceAbsence("", state, now); got {
 		t.Fatalf("expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
@@ -335,7 +335,7 @@ func TestCheckGroupAbsenceCooldownBlocks(t *testing.T) {
 
 func TestCheckAbsenceSkipsNonAbsenceRule(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, nil))
-	ev.States[""] = &condition.GroupState{LastSeen: time.Now().Add(-15 * time.Second)}
+	ev.Instances[""] = &instanceState{Condition: &condition.ConditionState{LastSeen: time.Now().Add(-15 * time.Second)}}
 
 	ev.CheckAbsence()
 	assertNoRecordedAction(t, recorder.ch)
@@ -345,11 +345,11 @@ func TestCheckAbsenceChecksAllGroups(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
 		r.Pattern = `heartbeat ok (?P<service>[a-z]+)`
 		r.GroupBy = "service"
-		r.Condition = config.ConditionConfig{Value: &condition.AbsenceCondition{Duration: 10}}
+		r.Condition = config.ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
 	}))
 	now := time.Now()
-	ev.States["api"] = &condition.GroupState{LastSeen: now.Add(-15 * time.Second)}
-	ev.States["worker"] = &condition.GroupState{LastSeen: now.Add(-5 * time.Second)}
+	ev.Instances["api"] = &instanceState{Condition: &condition.ConditionState{LastSeen: now.Add(-15 * time.Second)}}
+	ev.Instances["worker"] = &instanceState{Condition: &condition.ConditionState{LastSeen: now.Add(-5 * time.Second)}}
 
 	ev.CheckAbsence()
 
@@ -399,7 +399,7 @@ func TestEnqueueRunProcessesEvent(t *testing.T) {
 
 func TestEnqueueDropsWhenBufferFull(t *testing.T) {
 	ev, _ := newTestEvaluator(t, newTestRule(t, nil))
-	ev.events = make(chan Event, 512)
+	ev.events = make(chan LineEvent, 512)
 	for range 512 {
 		ev.Enqueue("error: api", time.Now())
 	}
@@ -419,15 +419,15 @@ func TestEnqueueDropsWhenBufferFull(t *testing.T) {
 
 func TestTimeoutKillsRunningAction(t *testing.T) {
 	recorder := newRecordingAction()
-	*recorder.Timeout = 1
+	*recorder.Options.Timeout = 1
 	recorder.finishedCh = make(chan error, 1)
 
 	ev := NewEvaluator(newTestRule(t, func(r *config.Rule) {
-		r.Action = config.ActionConfig{Value: recorder}
+		r.Action = config.ActionSpec{Value: recorder}
 	}))
 
 	now := time.Now()
-	if got := ev.process(Event{Line: "error: api", Timestamp: now}); !got {
+	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now}); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 
@@ -448,22 +448,22 @@ func TestTimeoutKillsRunningAction(t *testing.T) {
 
 func TestStopPreviousCancelsAndStartsNewAction(t *testing.T) {
 	recorder := newRecordingAction()
-	*recorder.Timeout = 60
-	*recorder.StopPrevious = true
+	*recorder.Options.Timeout = 60
+	*recorder.Options.StopPrevious = true
 	recorder.finishedCh = make(chan error, 1)
 
 	ev := NewEvaluator(newTestRule(t, func(r *config.Rule) {
 		r.Cooldown = 0
-		r.Action = config.ActionConfig{Value: recorder}
+		r.Action = config.ActionSpec{Value: recorder}
 	}))
 
 	now := time.Now()
-	if got := ev.process(Event{Line: "error: api", Timestamp: now}); !got {
+	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now}); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 	waitForRecordedAction(t, recorder.ch)
 
-	if got := ev.process(Event{Line: "error: db", Timestamp: now.Add(time.Second)}); !got {
+	if got := ev.process(LineEvent{Line: "error: db", Timestamp: now.Add(time.Second)}); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 
@@ -484,21 +484,21 @@ func TestStopPreviousCancelsAndStartsNewAction(t *testing.T) {
 
 func TestStopPreviousSkipsCompletedAction(t *testing.T) {
 	recorder := newRecordingAction()
-	*recorder.StopPrevious = true
+	*recorder.Options.StopPrevious = true
 	recorder.finishedCh = make(chan error, 1)
 
 	ev := NewEvaluator(newTestRule(t, func(r *config.Rule) {
 		r.Cooldown = 0
-		r.Action = config.ActionConfig{Value: recorder}
+		r.Action = config.ActionSpec{Value: recorder}
 	}))
 
 	now := time.Now()
-	if got := ev.process(Event{Line: "error: api", Timestamp: now}); !got {
+	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now}); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 	waitForRecordedAction(t, recorder.ch)
 
-	if got := ev.process(Event{Line: "error: db", Timestamp: now.Add(time.Second)}); !got {
+	if got := ev.process(LineEvent{Line: "error: db", Timestamp: now.Add(time.Second)}); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 

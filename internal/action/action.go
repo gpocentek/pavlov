@@ -15,24 +15,24 @@ type ActionContext struct {
 	Vars      map[string]string
 }
 
-type ActionConfig struct {
+type RunOptions struct {
 	Timeout      *uint `yaml:"timeout"`
 	StopPrevious *bool `yaml:"stop_previous"`
 }
 
 type Action interface {
-	GetActionConfig() ActionConfig
+	RunOptions() RunOptions
 	Act(context.Context, *ActionContext)
 	Validate() error
 }
 
-func setDefaultActionConfigValues(a *ActionConfig) {
-	if a.Timeout == nil {
+func setDefaultRunOptions(o *RunOptions) {
+	if o.Timeout == nil {
 		d := uint(0)
-		a.Timeout = &d
+		o.Timeout = &d
 	}
-	if a.StopPrevious == nil {
+	if o.StopPrevious == nil {
 		b := false
-		a.StopPrevious = &b
+		o.StopPrevious = &b
 	}
 }

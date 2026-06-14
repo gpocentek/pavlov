@@ -1,26 +1,19 @@
 package condition
 
-import (
-	"context"
-	"time"
-)
+import "time"
 
-type GroupState struct {
-	Window    []time.Time
-	LastFired time.Time
-	LastSeen  time.Time
-	// Cancel and RunCtx track the in-flight action for stop_previous.
-	Cancel context.CancelFunc
-	RunCtx context.Context
+type ConditionState struct {
+	MatchTimes []time.Time
+	LastSeen   time.Time
 }
 
 type ConditionContext struct {
-	Line        string
-	Vars        map[string]string
-	Group       string
-	Timestamp   time.Time
-	State       *GroupState
-	AbsenceTick bool
+	Line       string
+	Captures   map[string]string
+	GroupValue string
+	Timestamp  time.Time
+	State      *ConditionState
+	FromTicker bool
 }
 
 type Condition interface {

@@ -14,22 +14,22 @@ import (
 	"pavlov/internal/condition"
 )
 
-type ActionConfig struct {
+type ActionSpec struct {
 	Value action.Action
 }
 
-func (c *ActionConfig) String() string {
+func (c *ActionSpec) String() string {
 	if c.Value == nil {
 		return "<nil>"
 	}
 	return fmt.Sprint(c.Value)
 }
 
-type ConditionConfig struct {
+type ConditionSpec struct {
 	Value condition.Condition
 }
 
-func (c *ConditionConfig) String() string {
+func (c *ConditionSpec) String() string {
 	if c.Value == nil {
 		return "<nil>"
 	}
@@ -42,21 +42,21 @@ func (r Rule) String() string {
 }
 
 type Rule struct {
-	Name          string          `yaml:"name"`
-	File          string          `yaml:"file"`
-	Pattern       string          `yaml:"pattern"`
-	PatternRegexp *regexp.Regexp  `yaml:"-"` // Compiled pattern
-	GroupBy       string          `yaml:"group_by"`
-	Cooldown      uint            `yaml:"cooldown"`
-	Condition     ConditionConfig `yaml:"condition"`
-	Action        ActionConfig    `yaml:"action"`
+	Name          string         `yaml:"name"`
+	File          string         `yaml:"file"`
+	Pattern       string         `yaml:"pattern"`
+	PatternRegexp *regexp.Regexp `yaml:"-"` // Compiled pattern
+	GroupBy       string         `yaml:"group_by"`
+	Cooldown      uint           `yaml:"cooldown"`
+	Condition     ConditionSpec  `yaml:"condition"`
+	Action        ActionSpec     `yaml:"action"`
 }
 
 type Config struct {
 	Rules []*Rule `yaml:"rules"`
 }
 
-func (c *ActionConfig) UnmarshalYAML(value *yaml.Node) error {
+func (c *ActionSpec) UnmarshalYAML(value *yaml.Node) error {
 	var discriminator struct {
 		Type string `yaml:"type"`
 	}
@@ -84,7 +84,7 @@ func (c *ActionConfig) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
-func (c *ConditionConfig) UnmarshalYAML(value *yaml.Node) error {
+func (c *ConditionSpec) UnmarshalYAML(value *yaml.Node) error {
 	var discriminator struct {
 		Type string `yaml:"type"`
 	}
@@ -144,48 +144,33 @@ func validateRuleGroupBy(rule *Rule) error {
 	return nil
 }
 
-func Validate(config *Config) error {
-	if len(config.Rules) == 0 {
+func validateConfig(cfg *Config) error {
+	if len(cfg.Rules) == 0 {
 		return fmt.Errorf("no rules found")
 	}
 
-	for idx, rule := range config.Rules {
-		// Name is required
+	for idx, rule := range cfg.Rules {
 		if rule.Name == "" {
 			return fmt.Errorf("rule %d: `name` is required", idx)
 		}
 
-		// File is required
 		if rule.File == "" {
 			return fmt.Errorf("rule %d: `file` is required", idx)
 		}
 
-		// Pattern is required
 		if rule.Pattern == "" {
 			return fmt.Errorf("rule %d: `pattern` is required", idx)
 		}
 
-		// Compile pattern
-		patternRegexp, err := regexp.Compile(rule.Pattern)
-		if err != nil {
+		if _, err := regexp.Compile(rule.Pattern); err != nil {
 			return fmt.Errorf("rule %s: failed to compile pattern %s: %w", rule.Name, rule.Pattern, err)
 		}
-		rule.PatternRegexp = patternRegexp
 
-		// Get absolute path of file
-		file, err := filepath.Abs(filepath.Clean(rule.File))
-		if err != nil {
-			return fmt.Errorf("rule %d: failed to get absolute path of %s: %w", idx, rule.File, err)
-		}
-		rule.File = file
-
-		err = validateRuleFile(rule)
-		if err != nil {
+		if err := validateRuleFile(rule); err != nil {
 			return fmt.Errorf("rule %s: %w", rule.Name, err)
 		}
 
-		err = validateRuleGroupBy(rule)
-		if err != nil {
+		if err := validateRuleGroupBy(rule); err != nil {
 			return fmt.Errorf("rule %s: %w", rule.Name, err)
 		}
 
@@ -193,8 +178,7 @@ func Validate(config *Config) error {
 			return fmt.Errorf("rule %s: `condition` is required", rule.Name)
 		}
 
-		err = rule.Condition.Value.Validate()
-		if err != nil {
+		if err := rule.Condition.Value.Validate(); err != nil {
 			return fmt.Errorf("rule %s: %w", rule.Name, err)
 		}
 
@@ -202,13 +186,37 @@ func Validate(config *Config) error {
 			return fmt.Errorf("rule %s: `action` is required", rule.Name)
 		}
 
-		err = rule.Action.Value.Validate()
-		if err != nil {
+		if err := rule.Action.Value.Validate(); err != nil {
 			return fmt.Errorf("rule %s: %w", rule.Name, err)
 		}
 	}
 
 	return nil
+}
+
+func prepareConfig(cfg *Config) error {
+	for _, rule := range cfg.Rules {
+		patternRegexp, err := regexp.Compile(rule.Pattern)
+		if err != nil {
+			return fmt.Errorf("rule %s: failed to compile pattern %s: %w", rule.Name, rule.Pattern, err)
+		}
+		rule.PatternRegexp = patternRegexp
+
+		file, err := filepath.Abs(filepath.Clean(rule.File))
+		if err != nil {
+			return fmt.Errorf("rule %s: failed to get absolute path of %s: %w", rule.Name, rule.File, err)
+		}
+		rule.File = file
+	}
+
+	return nil
+}
+
+func Validate(cfg *Config) error {
+	if err := validateConfig(cfg); err != nil {
+		return err
+	}
+	return prepareConfig(cfg)
 }
 
 func LoadFromString(data []byte) (*Config, error) {

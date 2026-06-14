@@ -47,17 +47,14 @@ func TestThresholdConditionEvalNotMet(t *testing.T) {
 	now := time.Now()
 	ctx := &ConditionContext{
 		Timestamp: now,
-		State:     &GroupState{},
+		State:     &ConditionState{},
 	}
 
 	if got := condition.Eval(ctx); got != false {
 		t.Fatalf("expected false, got %v", got)
 	}
-	if ctx.State.LastSeen != now {
-		t.Fatalf("expected last seen to be %v, got %v", now, ctx.State.LastSeen)
-	}
-	if len(ctx.State.Window) != 1 {
-		t.Fatalf("expected window length 1, got %d", len(ctx.State.Window))
+	if len(ctx.State.MatchTimes) != 1 {
+		t.Fatalf("expected match times length 1, got %d", len(ctx.State.MatchTimes))
 	}
 }
 
@@ -65,7 +62,7 @@ func TestThresholdConditionEvalMet(t *testing.T) {
 	condition := &ThresholdCondition{Threshold: 3, Window: 60}
 	now := time.Now()
 	ctx := &ConditionContext{
-		State: &GroupState{},
+		State: &ConditionState{},
 	}
 
 	for i := range 2 {
@@ -79,11 +76,8 @@ func TestThresholdConditionEvalMet(t *testing.T) {
 	if got := condition.Eval(ctx); got != true {
 		t.Fatalf("expected true, got %v", got)
 	}
-	if ctx.State.LastSeen != ctx.Timestamp {
-		t.Fatalf("expected last seen to be %v, got %v", ctx.Timestamp, ctx.State.LastSeen)
-	}
-	if len(ctx.State.Window) != 3 {
-		t.Fatalf("expected window length 3, got %d", len(ctx.State.Window))
+	if len(ctx.State.MatchTimes) != 3 {
+		t.Fatalf("expected match times length 3, got %d", len(ctx.State.MatchTimes))
 	}
 }
 
@@ -91,7 +85,7 @@ func TestThresholdConditionEvalPrunesOutsideWindow(t *testing.T) {
 	condition := &ThresholdCondition{Threshold: 2, Window: 10}
 	now := time.Now()
 	ctx := &ConditionContext{
-		State: &GroupState{},
+		State: &ConditionState{},
 	}
 
 	ctx.Timestamp = now
@@ -103,15 +97,15 @@ func TestThresholdConditionEvalPrunesOutsideWindow(t *testing.T) {
 	if got := condition.Eval(ctx); got != false {
 		t.Fatalf("second event after window: expected false, got %v", got)
 	}
-	if len(ctx.State.Window) != 1 {
-		t.Fatalf("expected pruned window length 1, got %d", len(ctx.State.Window))
+	if len(ctx.State.MatchTimes) != 1 {
+		t.Fatalf("expected pruned match times length 1, got %d", len(ctx.State.MatchTimes))
 	}
 
 	ctx.Timestamp = now.Add(16 * time.Second)
 	if got := condition.Eval(ctx); got != true {
 		t.Fatalf("third event within window: expected true, got %v", got)
 	}
-	if len(ctx.State.Window) != 2 {
-		t.Fatalf("expected final window length 2, got %d", len(ctx.State.Window))
+	if len(ctx.State.MatchTimes) != 2 {
+		t.Fatalf("expected final match times length 2, got %d", len(ctx.State.MatchTimes))
 	}
 }

@@ -32,7 +32,7 @@ func TestShellActionTimeoutKillsProcessGroup(t *testing.T) {
 	stopPrevious := false
 	a := &ShellAction{
 		Script: script,
-		ActionConfig: ActionConfig{
+		Options: RunOptions{
 			Timeout:      &timeout,
 			StopPrevious: &stopPrevious,
 		},

@@ -15,19 +15,18 @@ func (c *ThresholdCondition) String() string {
 }
 
 func (c *ThresholdCondition) Eval(ctx *ConditionContext) bool {
-	ctx.State.Window = append(ctx.State.Window, ctx.Timestamp)
-	ctx.State.LastSeen = ctx.Timestamp
+	ctx.State.MatchTimes = append(ctx.State.MatchTimes, ctx.Timestamp)
 
 	cutoff := ctx.Timestamp.Add(-time.Duration(c.Window) * time.Second)
-	pruned := ctx.State.Window[:0]
-	for _, t := range ctx.State.Window {
+	pruned := ctx.State.MatchTimes[:0]
+	for _, t := range ctx.State.MatchTimes {
 		if !t.Before(cutoff) {
 			pruned = append(pruned, t)
 		}
 	}
-	ctx.State.Window = pruned
+	ctx.State.MatchTimes = pruned
 
-	return len(ctx.State.Window) >= int(c.Threshold)
+	return len(ctx.State.MatchTimes) >= int(c.Threshold)
 }
 
 func (c *ThresholdCondition) Validate() error {

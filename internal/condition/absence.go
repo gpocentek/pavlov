@@ -14,8 +14,8 @@ func (c *AbsenceCondition) String() string {
 }
 
 func (c *AbsenceCondition) Eval(ctx *ConditionContext) bool {
-	// AbsenceTick is set when the time-base check runs
-	if !ctx.AbsenceTick {
+	// FromTicker is set when the periodic ticker runs the check.
+	if !ctx.FromTicker {
 		ctx.State.LastSeen = ctx.Timestamp
 		return false
 	}

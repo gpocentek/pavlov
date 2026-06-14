@@ -21,10 +21,10 @@ func validRule() *Rule {
 		Pattern:  testPatternWithBackend,
 		GroupBy:  "backend",
 		Cooldown: 60,
-		Condition: ConditionConfig{
+		Condition: ConditionSpec{
 			Value: &condition.ThresholdCondition{Threshold: 5, Window: 60},
 		},
-		Action: ActionConfig{
+		Action: ActionSpec{
 			Value: &action.LogAction{Template: "fake template"},
 		},
 	}
@@ -57,36 +57,36 @@ func assertValidateError(t *testing.T, cfg *Config, wantSubstring string) error 
 func seenRule() *Rule {
 	rule := validRule()
 	rule.GroupBy = ""
-	rule.Condition = ConditionConfig{Value: &condition.SeenCondition{}}
-	rule.Action = ActionConfig{Value: &action.LogAction{Template: "rule={{ .Rule }}"}}
+	rule.Condition = ConditionSpec{Value: &condition.SeenCondition{}}
+	rule.Action = ActionSpec{Value: &action.LogAction{Template: "rule={{ .Rule }}"}}
 	return rule
 }
 
-func unmarshalConditionYAML(t *testing.T, yamlData string) ConditionConfig {
+func unmarshalConditionYAML(t *testing.T, yamlData string) ConditionSpec {
 	t.Helper()
-	var data ConditionConfig
+	var data ConditionSpec
 	if err := yaml.Unmarshal([]byte(yamlData), &data); err != nil {
 		t.Fatalf("unmarshal condition: %v", err)
 	}
 	return data
 }
 
-func unmarshalActionYAML(t *testing.T, yamlData string) ActionConfig {
+func unmarshalActionYAML(t *testing.T, yamlData string) ActionSpec {
 	t.Helper()
-	var data ActionConfig
+	var data ActionSpec
 	if err := yaml.Unmarshal([]byte(yamlData), &data); err != nil {
 		t.Fatalf("unmarshal action: %v", err)
 	}
 	return data
 }
 
-func assertActionConfig(t *testing.T, cfg *action.ActionConfig, wantTimeout uint, wantStopPrevious bool) {
+func assertRunOptions(t *testing.T, opts *action.RunOptions, wantTimeout uint, wantStopPrevious bool) {
 	t.Helper()
-	if *cfg.Timeout != wantTimeout {
-		t.Fatalf("Timeout should be %d, got %d", wantTimeout, *cfg.Timeout)
+	if *opts.Timeout != wantTimeout {
+		t.Fatalf("Timeout should be %d, got %d", wantTimeout, *opts.Timeout)
 	}
-	if *cfg.StopPrevious != wantStopPrevious {
-		t.Fatalf("StopPrevious should be %t, got %t", wantStopPrevious, *cfg.StopPrevious)
+	if *opts.StopPrevious != wantStopPrevious {
+		t.Fatalf("StopPrevious should be %t, got %t", wantStopPrevious, *opts.StopPrevious)
 	}
 }
 
@@ -227,7 +227,7 @@ func TestRuleGroupByEmpty(t *testing.T) {
 
 func TestRuleConditionMissing(t *testing.T) {
 	rule := validRule()
-	rule.Condition = ConditionConfig{}
+	rule.Condition = ConditionSpec{}
 	_ = assertValidateError(t, configWithRules(rule), "`condition` is required")
 }
 
@@ -249,7 +249,7 @@ func TestRuleInvalidConditionType(t *testing.T) {
 
 func TestRuleActionMissing(t *testing.T) {
 	rule := validRule()
-	rule.Action = ActionConfig{}
+	rule.Action = ActionSpec{}
 	_ = assertValidateError(t, configWithRules(rule), "`action` is required")
 }
 
@@ -270,14 +270,14 @@ func TestRuleInvalidActionType(t *testing.T) {
 	}
 }
 
-func TestConditionConfigSeenValid(t *testing.T) {
+func TestConditionSpecSeenValid(t *testing.T) {
 	data := unmarshalConditionYAML(t, `type: seen`)
 	if err := data.Value.Validate(); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 }
 
-func TestConditionConfigThresholdValid(t *testing.T) {
+func TestConditionSpecThresholdValid(t *testing.T) {
 	data := unmarshalConditionYAML(t, `type: threshold
 threshold: 5
 window: 60
@@ -287,7 +287,7 @@ window: 60
 	}
 }
 
-func TestConditionConfigAbsenceValid(t *testing.T) {
+func TestConditionSpecAbsenceValid(t *testing.T) {
 	data := unmarshalConditionYAML(t, `type: absence
 duration: 60
 `)
@@ -296,14 +296,14 @@ duration: 60
 	}
 }
 
-func TestConditionConfigUnknownType(t *testing.T) {
-	err := yaml.Unmarshal([]byte(`type: invalid`), new(ConditionConfig))
+func TestConditionSpecUnknownType(t *testing.T) {
+	err := yaml.Unmarshal([]byte(`type: invalid`), new(ConditionSpec))
 	if !strings.Contains(err.Error(), `condition: unknown type "invalid"`) {
 		t.Fatalf("expected unknown condition type error, got %v", err)
 	}
 }
 
-func TestConditionConfigThresholdInvalid(t *testing.T) {
+func TestConditionSpecThresholdInvalid(t *testing.T) {
 	c := &condition.ThresholdCondition{Threshold: 0, Window: 60}
 	if err := c.Validate(); err == nil {
 		t.Fatal("expected validation error, got nil")
@@ -312,7 +312,7 @@ func TestConditionConfigThresholdInvalid(t *testing.T) {
 	}
 }
 
-func TestConditionConfigThresholdInvalidWindow(t *testing.T) {
+func TestConditionSpecThresholdInvalidWindow(t *testing.T) {
 	c := &condition.ThresholdCondition{Threshold: 5, Window: 0}
 	if err := c.Validate(); err == nil {
 		t.Fatal("expected validation error, got nil")
@@ -321,7 +321,7 @@ func TestConditionConfigThresholdInvalidWindow(t *testing.T) {
 	}
 }
 
-func TestConditionConfigAbsenceInvalid(t *testing.T) {
+func TestConditionSpecAbsenceInvalid(t *testing.T) {
 	c := &condition.AbsenceCondition{Duration: 0}
 	if err := c.Validate(); err == nil {
 		t.Fatal("expected validation error, got nil")
@@ -330,35 +330,35 @@ func TestConditionConfigAbsenceInvalid(t *testing.T) {
 	}
 }
 
-func TestConditionConfigMissingType(t *testing.T) {
+func TestConditionSpecMissingType(t *testing.T) {
 	err := yaml.Unmarshal([]byte(`threshold: 5
 window: 60
-`), new(ConditionConfig))
+`), new(ConditionSpec))
 	if !strings.Contains(err.Error(), `condition: unknown type ""`) {
 		t.Fatalf("expected missing condition type error, got %v", err)
 	}
 }
 
-func TestConditionConfigMalformedThreshold(t *testing.T) {
+func TestConditionSpecMalformedThreshold(t *testing.T) {
 	err := yaml.Unmarshal([]byte(`type: threshold
 threshold: not-a-number
 window: 60
-`), new(ConditionConfig))
+`), new(ConditionSpec))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
 
-func TestConditionConfigMalformedAbsence(t *testing.T) {
+func TestConditionSpecMalformedAbsence(t *testing.T) {
 	err := yaml.Unmarshal([]byte(`type: absence
 duration: not-a-number
-`), new(ConditionConfig))
+`), new(ConditionSpec))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
 
-func TestActionConfigLogValid(t *testing.T) {
+func TestActionSpecLogValid(t *testing.T) {
 	tests := []struct {
 		name             string
 		yaml             string
@@ -390,12 +390,12 @@ stop_previous: true
 			if err := data.Value.Validate(); err != nil {
 				t.Fatalf("expected no error, got %v", err)
 			}
-			assertActionConfig(t, &data.Value.(*action.LogAction).ActionConfig, tt.wantTimeout, tt.wantStopPrevious)
+			assertRunOptions(t, &data.Value.(*action.LogAction).Options, tt.wantTimeout, tt.wantStopPrevious)
 		})
 	}
 }
 
-func TestActionConfigShellValid(t *testing.T) {
+func TestActionSpecShellValid(t *testing.T) {
 	script := tempExecutableScript(t)
 	tests := []struct {
 		name             string
@@ -425,52 +425,52 @@ script: `+script+tt.extraYAML+`
 			if err := data.Value.Validate(); err != nil {
 				t.Fatalf("expected no error, got %v", err)
 			}
-			assertActionConfig(t, &data.Value.(*action.ShellAction).ActionConfig, tt.wantTimeout, tt.wantStopPrevious)
+			assertRunOptions(t, &data.Value.(*action.ShellAction).Options, tt.wantTimeout, tt.wantStopPrevious)
 		})
 	}
 }
 
-func TestActionConfigUnknownType(t *testing.T) {
-	err := yaml.Unmarshal([]byte(`type: invalid`), new(ActionConfig))
+func TestActionSpecUnknownType(t *testing.T) {
+	err := yaml.Unmarshal([]byte(`type: invalid`), new(ActionSpec))
 	if !strings.Contains(err.Error(), `action: unknown type "invalid"`) {
 		t.Fatalf("expected unknown action type error, got %v", err)
 	}
 }
 
-func TestActionConfigMissingType(t *testing.T) {
-	err := yaml.Unmarshal([]byte(`template: "hello"`), new(ActionConfig))
+func TestActionSpecMissingType(t *testing.T) {
+	err := yaml.Unmarshal([]byte(`template: "hello"`), new(ActionSpec))
 	if !strings.Contains(err.Error(), `action: unknown type ""`) {
 		t.Fatalf("expected missing action type error, got %v", err)
 	}
 }
 
-func TestActionConfigMalformedLog(t *testing.T) {
+func TestActionSpecMalformedLog(t *testing.T) {
 	err := yaml.Unmarshal([]byte(`type: log
 template:
   invalid: mapping
-`), new(ActionConfig))
+`), new(ActionSpec))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
 
-func TestActionConfigMalformedShell(t *testing.T) {
+func TestActionSpecMalformedShell(t *testing.T) {
 	err := yaml.Unmarshal([]byte(`type: shell
 script:
   invalid: mapping
-`), new(ActionConfig))
+`), new(ActionSpec))
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
 
 func TestStringMethods(t *testing.T) {
-	var nilAction ActionConfig
+	var nilAction ActionSpec
 	if nilAction.String() != "<nil>" {
 		t.Fatalf("expected '<nil>', got %q", nilAction.String())
 	}
 
-	var nilCondition ConditionConfig
+	var nilCondition ConditionSpec
 	if nilCondition.String() != "<nil>" {
 		t.Fatalf("expected '<nil>', got %q", nilCondition.String())
 	}
@@ -513,7 +513,7 @@ func TestRuleValidAbsenceCondition(t *testing.T) {
 	rule := seenRule()
 	rule.Name = "heartbeat_missing"
 	rule.Pattern = "heartbeat ok"
-	rule.Condition = ConditionConfig{Value: &condition.AbsenceCondition{Duration: 10}}
+	rule.Condition = ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
 	assertValidateOK(t, configWithRules(rule))
 }
 
@@ -526,7 +526,7 @@ func TestRuleValidShellAction(t *testing.T) {
 	rule := seenRule()
 	rule.Name = "alert"
 	rule.Pattern = "error"
-	rule.Action = ActionConfig{Value: &action.ShellAction{Script: script}}
+	rule.Action = ActionSpec{Value: &action.ShellAction{Script: script}}
 	assertValidateOK(t, configWithRules(rule))
 }
 
@@ -557,14 +557,14 @@ func TestValidateSetsPatternRegexp(t *testing.T) {
 func TestRuleInvalidThresholdCondition(t *testing.T) {
 	rule := seenRule()
 	rule.Pattern = "timeout"
-	rule.Condition = ConditionConfig{Value: &condition.ThresholdCondition{Threshold: 0, Window: 60}}
+	rule.Condition = ConditionSpec{Value: &condition.ThresholdCondition{Threshold: 0, Window: 60}}
 	_ = assertValidateError(t, configWithRules(rule), "`threshold` must be greater than 0")
 }
 
 func TestRuleInvalidThresholdWindow(t *testing.T) {
 	rule := seenRule()
 	rule.Pattern = "timeout"
-	rule.Condition = ConditionConfig{Value: &condition.ThresholdCondition{Threshold: 5, Window: 0}}
+	rule.Condition = ConditionSpec{Value: &condition.ThresholdCondition{Threshold: 5, Window: 0}}
 	_ = assertValidateError(t, configWithRules(rule), "`window` must be greater than 0")
 }
 
@@ -572,21 +572,21 @@ func TestRuleInvalidAbsenceCondition(t *testing.T) {
 	rule := seenRule()
 	rule.Name = "heartbeat_missing"
 	rule.Pattern = "heartbeat ok"
-	rule.Condition = ConditionConfig{Value: &condition.AbsenceCondition{Duration: 0}}
+	rule.Condition = ConditionSpec{Value: &condition.AbsenceCondition{Duration: 0}}
 	_ = assertValidateError(t, configWithRules(rule), "`duration` must be defined and greater than 0")
 }
 
 func TestRuleInvalidLogTemplate(t *testing.T) {
 	rule := seenRule()
 	rule.Name = "test_rule"
-	rule.Action = ActionConfig{Value: &action.LogAction{Template: "{{invalid"}}
+	rule.Action = ActionSpec{Value: &action.LogAction{Template: "{{invalid"}}
 	_ = assertValidateError(t, configWithRules(rule), "failed to parse log template")
 }
 
 func TestRuleInvalidShellActionMissingScript(t *testing.T) {
 	rule := seenRule()
 	rule.Name = "alert"
-	rule.Action = ActionConfig{Value: &action.ShellAction{Script: "/tmp/does-not-exist.sh"}}
+	rule.Action = ActionSpec{Value: &action.ShellAction{Script: "/tmp/does-not-exist.sh"}}
 	_ = assertValidateError(t, configWithRules(rule), "does not exist")
 }
 
@@ -598,7 +598,7 @@ func TestRuleInvalidShellActionNotExecutable(t *testing.T) {
 
 	rule := seenRule()
 	rule.Name = "alert"
-	rule.Action = ActionConfig{Value: &action.ShellAction{Script: script}}
+	rule.Action = ActionSpec{Value: &action.ShellAction{Script: script}}
 	_ = assertValidateError(t, configWithRules(rule), "is not executable")
 }
 
@@ -625,6 +625,6 @@ func TestValidateMultipleRulesSecondInvalid(t *testing.T) {
 func TestRuleInvalidShellActionMissingScriptField(t *testing.T) {
 	rule := seenRule()
 	rule.Name = "alert"
-	rule.Action = ActionConfig{Value: &action.ShellAction{}}
+	rule.Action = ActionSpec{Value: &action.ShellAction{}}
 	_ = assertValidateError(t, configWithRules(rule), "`script` is required")
 }

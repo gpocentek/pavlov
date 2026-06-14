@@ -4,13 +4,13 @@ import (
 	"testing"
 )
 
-func TestSetDefaultActionConfigValues(t *testing.T) {
-	actionConfig := &ActionConfig{}
-	setDefaultActionConfigValues(actionConfig)
-	if *actionConfig.Timeout != 0 {
-		t.Fatalf("Timeout should be 0, got %d", *actionConfig.Timeout)
+func TestSetDefaultRunOptions(t *testing.T) {
+	opts := &RunOptions{}
+	setDefaultRunOptions(opts)
+	if *opts.Timeout != 0 {
+		t.Fatalf("Timeout should be 0, got %d", *opts.Timeout)
 	}
-	if *actionConfig.StopPrevious != false {
-		t.Fatalf("StopPrevious should be false, got %t", *actionConfig.StopPrevious)
+	if *opts.StopPrevious != false {
+		t.Fatalf("StopPrevious should be false, got %t", *opts.StopPrevious)
 	}
 }

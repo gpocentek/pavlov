@@ -11,29 +11,46 @@ import (
 	"pavlov/internal/config"
 )
 
-type Event struct {
+type LineEvent struct {
 	Line      string
 	Timestamp time.Time
 }
 
+type runState struct {
+	LastFired time.Time
+	Cancel    context.CancelFunc
+	RunCtx    context.Context
+}
+
+// instanceState holds per-scope mutable state for a rule. The map key is the
+// group_by capture value, or "" when group_by is not set. Condition tracks
+// evaluation data (sliding windows, last seen); Run tracks cooldown and
+// in-flight actions for stop_previous and timeout.
+type instanceState struct {
+	Condition *condition.ConditionState
+	Run       runState
+}
+
 type Evaluator struct {
-	Rule    *config.Rule
-	Pattern *regexp.Regexp
-	States  map[string]*condition.GroupState
-	events  chan Event
+	Rule      *config.Rule
+	Pattern   *regexp.Regexp
+	Instances map[string]*instanceState
+	events    chan LineEvent
 }
 
 func NewEvaluator(rule *config.Rule) *Evaluator {
-	states := make(map[string]*condition.GroupState)
+	instances := make(map[string]*instanceState)
 	if _, ok := rule.Condition.Value.(*condition.AbsenceCondition); ok && rule.GroupBy == "" {
-		states[""] = &condition.GroupState{LastSeen: time.Now()}
+		instances[""] = &instanceState{
+			Condition: &condition.ConditionState{LastSeen: time.Now()},
+		}
 	}
 
 	return &Evaluator{
-		Rule:    rule,
-		Pattern: rule.PatternRegexp,
-		States:  states,
-		events:  make(chan Event, 512),
+		Rule:      rule,
+		Pattern:   rule.PatternRegexp,
+		Instances: instances,
+		events:    make(chan LineEvent, 512),
 	}
 }
 
@@ -48,7 +65,7 @@ func (e *Evaluator) Run(ctx context.Context) {
 	}
 }
 
-func (e *Evaluator) process(event Event) bool {
+func (e *Evaluator) process(event LineEvent) bool {
 	slog.Debug("processing line", "rule", e.Rule.Name, "line", event.Line)
 	matches := e.Pattern.FindStringSubmatch(event.Line)
 	if len(matches) == 0 {
@@ -56,31 +73,31 @@ func (e *Evaluator) process(event Event) bool {
 		return false
 	}
 
-	vars := make(map[string]string)
+	captures := make(map[string]string)
 	for i, name := range e.Pattern.SubexpNames() {
 		if name != "" && i < len(matches) {
-			vars[name] = matches[i]
+			captures[name] = matches[i]
 			slog.Debug("capture", "rule", e.Rule.Name, "name", name, "value", matches[i])
 		}
 	}
 
-	group := ""
+	scopeKey := ""
 	if e.Rule.GroupBy != "" {
-		group = vars[e.Rule.GroupBy]
+		scopeKey = captures[e.Rule.GroupBy]
 	}
 
-	state, ok := e.States[group]
+	state, ok := e.Instances[scopeKey]
 	if !ok {
-		state = &condition.GroupState{}
-		e.States[group] = state
+		state = &instanceState{Condition: &condition.ConditionState{}}
+		e.Instances[scopeKey] = state
 	}
 
 	ctx := &condition.ConditionContext{
-		Line:      event.Line,
-		Vars:      vars,
-		Group:     group,
-		Timestamp: event.Timestamp,
-		State:     state,
+		Line:       event.Line,
+		Captures:   captures,
+		GroupValue: scopeKey,
+		Timestamp:  event.Timestamp,
+		State:      state.Condition,
 	}
 
 	if !e.Rule.Condition.Value.Eval(ctx) {
@@ -92,19 +109,19 @@ func (e *Evaluator) process(event Event) bool {
 		File:      e.Rule.File,
 		Line:      event.Line,
 		GroupBy:   e.Rule.GroupBy,
-		Group:     group,
+		Group:     scopeKey,
 		Timestamp: event.Timestamp,
-		Vars:      vars,
+		Vars:      captures,
 	}
 	return e.tryFire(state, actionCtx)
 }
 
-func (e *Evaluator) checkGroupAbsence(group string, state *condition.GroupState, timestamp time.Time) bool {
+func (e *Evaluator) checkInstanceAbsence(scopeKey string, state *instanceState, timestamp time.Time) bool {
 	ctx := &condition.ConditionContext{
-		Group:       group,
-		Timestamp:   timestamp,
-		State:       state,
-		AbsenceTick: true,
+		GroupValue: scopeKey,
+		Timestamp:  timestamp,
+		State:      state.Condition,
+		FromTicker: true,
 	}
 
 	if !e.Rule.Condition.Value.Eval(ctx) {
@@ -115,7 +132,7 @@ func (e *Evaluator) checkGroupAbsence(group string, state *condition.GroupState,
 		Rule:      e.Rule.Name,
 		File:      e.Rule.File,
 		GroupBy:   e.Rule.GroupBy,
-		Group:     group,
+		Group:     scopeKey,
 		Timestamp: timestamp,
 	}
 	return e.tryFire(state, actionCtx)
@@ -127,12 +144,12 @@ func (e *Evaluator) CheckAbsence() {
 	}
 
 	now := time.Now()
-	for group, state := range e.States {
-		e.checkGroupAbsence(group, state, now)
+	for scopeKey, state := range e.Instances {
+		e.checkInstanceAbsence(scopeKey, state, now)
 	}
 }
 
-func (e *Evaluator) tryFire(state *condition.GroupState, actionCtx *action.ActionContext) bool {
+func (e *Evaluator) tryFire(state *instanceState, actionCtx *action.ActionContext) bool {
 	if active, expiresAt := e.inCooldown(state, actionCtx.Timestamp); active {
 		slog.Info("Condition met, but cooldown not expired",
 			"rule", e.Rule.Name,
@@ -142,15 +159,15 @@ func (e *Evaluator) tryFire(state *condition.GroupState, actionCtx *action.Actio
 		return false
 	}
 
-	timeout := *e.Rule.Action.Value.GetActionConfig().Timeout
-	stopPrevious := *e.Rule.Action.Value.GetActionConfig().StopPrevious
+	timeout := *e.Rule.Action.Value.RunOptions().Timeout
+	stopPrevious := *e.Rule.Action.Value.RunOptions().StopPrevious
 
 	slog.Info("Condition met, firing action", "rule", e.Rule.Name, "group", actionCtx.Group)
-	state.LastFired = actionCtx.Timestamp
+	state.Run.LastFired = actionCtx.Timestamp
 
-	if stopPrevious && state.RunCtx != nil && state.RunCtx.Err() == nil {
+	if stopPrevious && state.Run.RunCtx != nil && state.Run.RunCtx.Err() == nil {
 		slog.Warn("Cancelling previous action", "rule", e.Rule.Name, "group", actionCtx.Group)
-		state.Cancel()
+		state.Run.Cancel()
 	}
 
 	var ctx context.Context
@@ -169,26 +186,26 @@ func (e *Evaluator) tryFire(state *condition.GroupState, actionCtx *action.Actio
 			defer cancel()
 		}
 
-		state.Cancel = cancel
-		state.RunCtx = ctx
+		state.Run.Cancel = cancel
+		state.Run.RunCtx = ctx
 		slog.Debug("Starting action", "rule", e.Rule.Name, "group", actionCtx.Group)
 		e.Rule.Action.Value.Act(ctx, actionCtx)
 	}()
 	return true
 }
 
-func (e *Evaluator) inCooldown(state *condition.GroupState, timestamp time.Time) (bool, time.Time) {
+func (e *Evaluator) inCooldown(state *instanceState, timestamp time.Time) (bool, time.Time) {
 	// Return (true, expiration time) if the cooldown is not expired, (false, time.Time{}) otherwise
 	cooldown := time.Duration(e.Rule.Cooldown) * time.Second
-	if state.LastFired.IsZero() || timestamp.Sub(state.LastFired) > cooldown {
+	if state.Run.LastFired.IsZero() || timestamp.Sub(state.Run.LastFired) > cooldown {
 		return false, time.Time{}
 	}
-	return true, state.LastFired.Add(cooldown)
+	return true, state.Run.LastFired.Add(cooldown)
 }
 
 func (e *Evaluator) Enqueue(line string, timestamp time.Time) {
 	select {
-	case e.events <- Event{Line: line, Timestamp: timestamp}:
+	case e.events <- LineEvent{Line: line, Timestamp: timestamp}:
 	default:
 		slog.Warn("event dropped, evaluator buffer full", "rule", e.Rule.Name)
 	}

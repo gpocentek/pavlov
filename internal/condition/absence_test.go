@@ -35,7 +35,7 @@ func TestAbsenceConditionEvalEvent(t *testing.T) {
 	now := time.Now()
 	ctx := &ConditionContext{
 		Timestamp: now,
-		State:     &GroupState{},
+		State:     &ConditionState{},
 	}
 
 	if got := condition.Eval(ctx); got != false {
@@ -52,9 +52,9 @@ func TestAbsenceConditionEvalTick(t *testing.T) {
 
 	// 15 seconds after the last seen, the absence should be true
 	ctx := &ConditionContext{
-		Timestamp:   now.Add(15 * time.Second),
-		AbsenceTick: true,
-		State:       &GroupState{LastSeen: now},
+		Timestamp:  now.Add(15 * time.Second),
+		FromTicker: true,
+		State:      &ConditionState{LastSeen: now},
 	}
 
 	if got := condition.Eval(ctx); got != true {
@@ -63,9 +63,9 @@ func TestAbsenceConditionEvalTick(t *testing.T) {
 
 	// 5 seconds after the last seen, the absence should be false
 	ctx = &ConditionContext{
-		Timestamp:   now.Add(5 * time.Second),
-		AbsenceTick: true,
-		State:       &GroupState{LastSeen: now},
+		Timestamp:  now.Add(5 * time.Second),
+		FromTicker: true,
+		State:      &ConditionState{LastSeen: now},
 	}
 
 	if got := condition.Eval(ctx); got != false {
@@ -78,9 +78,9 @@ func TestAbsenceConditionEvalTickExactDuration(t *testing.T) {
 	now := time.Now()
 
 	ctx := &ConditionContext{
-		Timestamp:   now.Add(10 * time.Second),
-		AbsenceTick: true,
-		State:       &GroupState{LastSeen: now},
+		Timestamp:  now.Add(10 * time.Second),
+		FromTicker: true,
+		State:      &ConditionState{LastSeen: now},
 	}
 	if got := condition.Eval(ctx); got != false {
 		t.Fatalf("expected false at exact duration, got %v", got)

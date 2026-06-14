@@ -9,20 +9,19 @@ import (
 )
 
 type LogAction struct {
-	ActionConfig `yaml:",inline"`
-	File         string `yaml:"file"`
-	Template     string `yaml:"template"`
-	template     *template.Template
+	Options  RunOptions `yaml:",inline"`
+	Template string     `yaml:"template"`
+	template *template.Template
 }
 
-func (a *LogAction) GetActionConfig() ActionConfig {
-	return a.ActionConfig
+func (a *LogAction) RunOptions() RunOptions {
+	return a.Options
 }
 
 func (a *LogAction) String() string {
 	return fmt.Sprintf(
-		"log(file=%s, format=%s, timeout=%d, stop_previous=%t)",
-		a.File, a.Template, *a.Timeout, *a.StopPrevious,
+		"log(template=%s, timeout=%d, stop_previous=%t)",
+		a.Template, *a.Options.Timeout, *a.Options.StopPrevious,
 	)
 }
 
@@ -43,7 +42,7 @@ func (a *LogAction) Validate() error {
 	}
 	a.template = tmpl
 
-	setDefaultActionConfigValues(&a.ActionConfig)
+	setDefaultRunOptions(&a.Options)
 
 	return nil
 }
