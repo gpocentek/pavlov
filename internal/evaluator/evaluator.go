@@ -25,7 +25,7 @@ type Evaluator struct {
 
 func NewEvaluator(rule *config.Rule) *Evaluator {
 	states := make(map[string]*condition.GroupState)
-	if _, ok := rule.Condition.Value.(*condition.AbsenceCondition); ok {
+	if _, ok := rule.Condition.Value.(*condition.AbsenceCondition); ok && rule.GroupBy == "" {
 		states[""] = &condition.GroupState{LastSeen: time.Now()}
 	}
 
@@ -48,12 +48,12 @@ func (e *Evaluator) Run(ctx context.Context) {
 	}
 }
 
-func (e *Evaluator) process(event Event) {
+func (e *Evaluator) process(event Event) bool {
 	slog.Debug("processing line", "rule", e.Rule.Name, "line", event.Line)
 	matches := e.Pattern.FindStringSubmatch(event.Line)
 	if len(matches) == 0 {
 		slog.Debug("pattern did not match", "rule", e.Rule.Name, "line", event.Line)
-		return
+		return false
 	}
 
 	vars := make(map[string]string)
@@ -84,20 +84,9 @@ func (e *Evaluator) process(event Event) {
 	}
 
 	if !e.Rule.Condition.Value.Eval(ctx) {
-		return
+		return false
 	}
 
-	if active, expiresAt := e.inCooldown(state, event.Timestamp); active {
-		slog.Info("Condition met, but cooldown not expired",
-			"rule", e.Rule.Name,
-			"group", group,
-			"cooldownExpiresAt", expiresAt,
-		)
-		return
-	}
-
-	slog.Info("Condition met, firing action", "rule", e.Rule.Name, "group", group)
-	state.LastFired = event.Timestamp
 	actionCtx := &action.ActionContext{
 		Rule:      e.Rule.Name,
 		File:      e.Rule.File,
@@ -107,7 +96,29 @@ func (e *Evaluator) process(event Event) {
 		Timestamp: event.Timestamp,
 		Vars:      vars,
 	}
-	go e.Rule.Action.Value.Act(actionCtx)
+	return e.tryFire(state, actionCtx)
+}
+
+func (e *Evaluator) checkGroupAbsence(group string, state *condition.GroupState, timestamp time.Time) bool {
+	ctx := &condition.ConditionContext{
+		Group:       group,
+		Timestamp:   timestamp,
+		State:       state,
+		AbsenceTick: true,
+	}
+
+	if !e.Rule.Condition.Value.Eval(ctx) {
+		return false
+	}
+
+	actionCtx := &action.ActionContext{
+		Rule:      e.Rule.Name,
+		File:      e.Rule.File,
+		GroupBy:   e.Rule.GroupBy,
+		Group:     group,
+		Timestamp: timestamp,
+	}
+	return e.tryFire(state, actionCtx)
 }
 
 func (e *Evaluator) CheckAbsence() {
@@ -117,36 +128,24 @@ func (e *Evaluator) CheckAbsence() {
 
 	now := time.Now()
 	for group, state := range e.States {
-		ctx := &condition.ConditionContext{
-			Group:       group,
-			Timestamp:   now,
-			State:       state,
-			AbsenceTick: true,
-		}
-
-		if !e.Rule.Condition.Value.Eval(ctx) {
-			continue
-		}
-
-		if active, expiresAt := e.inCooldown(state, now); active {
-			slog.Info("Absence detected, but cooldown not expired",
-				"rule", e.Rule.Name,
-				"group", group,
-				"cooldownExpiresAt", expiresAt,
-			)
-			continue
-		}
-		slog.Info("Absence detected, firing action", "rule", e.Rule.Name, "group", group)
-		state.LastFired = now
-		actionCtx := &action.ActionContext{
-			Rule:      e.Rule.Name,
-			File:      e.Rule.File,
-			GroupBy:   e.Rule.GroupBy,
-			Group:     group,
-			Timestamp: now,
-		}
-		go e.Rule.Action.Value.Act(actionCtx)
+		e.checkGroupAbsence(group, state, now)
 	}
+}
+
+func (e *Evaluator) tryFire(state *condition.GroupState, actionCtx *action.ActionContext) bool {
+	if active, expiresAt := e.inCooldown(state, actionCtx.Timestamp); active {
+		slog.Info("Condition met, but cooldown not expired",
+			"rule", e.Rule.Name,
+			"group", actionCtx.Group,
+			"cooldownExpiresAt", expiresAt,
+		)
+		return false
+	}
+
+	slog.Info("Condition met, firing action", "rule", e.Rule.Name, "group", actionCtx.Group)
+	state.LastFired = actionCtx.Timestamp
+	go e.Rule.Action.Value.Act(actionCtx)
+	return true
 }
 
 func (e *Evaluator) inCooldown(state *condition.GroupState, timestamp time.Time) (bool, time.Time) {
