@@ -25,9 +25,3 @@ type Condition interface {
 type PeriodicEvaluator interface {
 	EvalPeriodic(*ConditionContext) bool
 }
-
-// InstanceSeeder is implemented by conditions that need initial per-scope state
-// before any matching line is seen (e.g. absence without group_by).
-type InstanceSeeder interface {
-	SeedInstances(groupBy string) map[string]*ConditionState
-}

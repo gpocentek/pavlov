@@ -162,7 +162,7 @@ condition:
 
 Use for heartbeat / liveness checks: "tell me when `heartbeat ok` stops appearing."
 
-Absence rules are evaluated periodically, once per second (not configurable yet). On startup, the clock starts from the current time — a missing heartbeat will not fire until `duration` seconds have passed without a match.
+Absence rules are evaluated periodically, once per second. A matching line must be seen at least once before absence detection applies — for the rule as a whole, or for each `group_by` value when grouping is enabled. Until then, the condition does not fire. After the first match, the clock resets on every subsequent match; if no match arrives for `duration` seconds, the action runs. Restarting Pavlov clears that history until the next match.
 
 ### Actions
 

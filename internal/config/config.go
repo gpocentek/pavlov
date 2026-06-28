@@ -31,9 +31,9 @@ func (c *ActionSpec) String() string {
 // decodes into a concrete condition.Condition implementation and stores it in Value.
 //
 // Most conditions are evaluated only when a log line matches the rule pattern (see
-// evaluator.process, which calls Value.Eval). Some conditions also implement optional
-// interfaces in internal/condition (PeriodicEvaluator, InstanceSeeder); ConditionSpec
-// delegates to those so the evaluator stays generic.
+// evaluator.process, which calls Value.Eval). Some conditions also implement
+// PeriodicEvaluator in internal/condition; ConditionSpec delegates to it so the
+// evaluator stays generic.
 type ConditionSpec struct {
 	Value condition.Condition
 }
@@ -54,14 +54,6 @@ func (c ConditionSpec) EvalPeriodic(ctx *condition.ConditionContext) bool {
 		return false
 	}
 	return pe.EvalPeriodic(ctx)
-}
-
-func (c ConditionSpec) SeedInstances(rule *Rule) map[string]*condition.ConditionState {
-	s, ok := c.Value.(condition.InstanceSeeder)
-	if !ok {
-		return nil
-	}
-	return s.SeedInstances(rule.GroupBy)
 }
 
 func (c ConditionSpec) String() string {

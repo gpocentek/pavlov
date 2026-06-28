@@ -89,19 +89,15 @@ func TestAbsenceConditionEvalPeriodicExactDuration(t *testing.T) {
 	}
 }
 
-func TestAbsenceConditionSeedInstances(t *testing.T) {
+func TestAbsenceConditionEvalPeriodicNeverSeen(t *testing.T) {
 	condition := &AbsenceCondition{Duration: 10}
+	now := time.Now()
 
-	if seeds := condition.SeedInstances("service"); seeds != nil {
-		t.Fatalf("expected nil seeds with group_by, got %v", seeds)
+	ctx := &ConditionContext{
+		Timestamp: now.Add(15 * time.Second),
+		State:     &ConditionState{},
 	}
-
-	seeds := condition.SeedInstances("")
-	if len(seeds) != 1 {
-		t.Fatalf("expected one seed, got %d", len(seeds))
-	}
-	state, ok := seeds[""]
-	if !ok || state.LastSeen.IsZero() {
-		t.Fatal(`expected "" scope with LastSeen set`)
+	if got := condition.EvalPeriodic(ctx); got != false {
+		t.Fatalf("expected false when never seen, got %v", got)
 	}
 }

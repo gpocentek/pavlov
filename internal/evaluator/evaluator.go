@@ -41,15 +41,10 @@ type Evaluator struct {
 }
 
 func NewEvaluator(rule *config.Rule) *Evaluator {
-	instances := make(map[string]*instanceState)
-	for scopeKey, condState := range rule.Condition.SeedInstances(rule) {
-		instances[scopeKey] = &instanceState{Condition: condState}
-	}
-
 	return &Evaluator{
 		Rule:      rule,
 		Pattern:   rule.PatternRegexp,
-		Instances: instances,
+		Instances: make(map[string]*instanceState),
 		events:    make(chan LineEvent, 512),
 		wg:        sync.WaitGroup{},
 	}

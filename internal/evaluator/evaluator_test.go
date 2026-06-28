@@ -100,7 +100,7 @@ func assertNoRecordedAction(t *testing.T, ch <-chan *action.ActionContext) {
 	}
 }
 
-func TestNewEvaluatorAbsenceSeed(t *testing.T) {
+func TestNewEvaluatorAbsenceNoInstances(t *testing.T) {
 	t.Run("ungrouped", func(t *testing.T) {
 		rule := newTestRule(t, func(r *config.Rule) {
 			r.Pattern = "heartbeat ok"
@@ -108,15 +108,8 @@ func TestNewEvaluatorAbsenceSeed(t *testing.T) {
 		})
 
 		ev := NewEvaluator(rule)
-		if len(ev.Instances) != 1 {
-			t.Fatalf("expected one seeded scope, got %d", len(ev.Instances))
-		}
-		state, ok := ev.Instances[""]
-		if !ok {
-			t.Fatal(`expected "" scope to be seeded`)
-		}
-		if state.Condition.LastSeen.IsZero() {
-			t.Fatal("expected LastSeen to be set at startup")
+		if len(ev.Instances) != 0 {
+			t.Fatalf("expected no instances before first match, got %d", len(ev.Instances))
 		}
 	})
 
@@ -129,17 +122,28 @@ func TestNewEvaluatorAbsenceSeed(t *testing.T) {
 
 		ev := NewEvaluator(rule)
 		if len(ev.Instances) != 0 {
-			t.Fatalf("expected no seeded states when group_by is set, got %d", len(ev.Instances))
+			t.Fatalf("expected no instances before first match, got %d", len(ev.Instances))
 		}
 	})
 }
 
-func TestCheckPeriodicFiresWithoutMatchingLine(t *testing.T) {
+func TestCheckPeriodicNoFireBeforeFirstMatch(t *testing.T) {
+	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
+		r.Pattern = "heartbeat ok"
+		r.Condition = config.NewConditionSpec(&condition.AbsenceCondition{Duration: 10})
+	}))
+
+	ev.CheckPeriodic(context.Background(), time.Now())
+	assertNoRecordedAction(t, recorder.ch)
+}
+
+func TestCheckPeriodicFiresAfterSilence(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
 		r.Pattern = "heartbeat ok"
 		r.Condition = config.NewConditionSpec(&condition.AbsenceCondition{Duration: 10})
 	}))
 	now := time.Now()
+	ev.process(context.Background(), LineEvent{Line: "heartbeat ok", Timestamp: now})
 	ev.Instances[""].Condition.LastSeen = now.Add(-15 * time.Second)
 
 	ev.CheckPeriodic(context.Background(), now)
