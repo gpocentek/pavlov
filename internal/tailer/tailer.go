@@ -147,7 +147,7 @@ func (t *Tailer) readAndEmit(ctx context.Context) {
 
 func (t *Tailer) Run(ctx context.Context) error {
 	defer close(t.events)
-	defer t.watcher.Close()
+	defer func() { _ = t.watcher.Close() }()
 	defer func() {
 		if t.fd != nil {
 			_ = t.fd.Close()
