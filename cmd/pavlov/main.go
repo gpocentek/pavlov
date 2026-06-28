@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"pavlov/internal/config"
 	"pavlov/internal/engine"
@@ -16,20 +14,23 @@ import (
 )
 
 func main() {
-	configFile := flag.String("config", "/etc/pavlov/config.yaml", "path to config file")
-	checkConfig := flag.Bool("check-config", false, "check config file and exit")
-	shutdownTimeout := flag.Duration("shutdown-timeout", 10*time.Second, "max time to wait for graceful shutdown")
-	flag.Parse()
-
-	logger.Init()
-
-	cfg, err := config.LoadFromFile(*configFile)
+	cfg, err := config.ParseAppConfig()
 	if err != nil {
-		slog.Error("failed to load config", "file", *configFile, "err", err)
+		fmt.Fprintf(os.Stderr, "failed to parse flags: %v\n", err)
+		os.Exit(2)
+	}
+
+	logger.Init(cfg)
+
+	slog.Debug("parsed app config", "config", cfg.String())
+
+	rulesCfg, err := config.LoadFromFile(cfg.ConfigFile)
+	if err != nil {
+		slog.Error("failed to load config", "file", cfg.ConfigFile, "err", err)
 		os.Exit(1)
 	}
 
-	if *checkConfig {
+	if cfg.CheckConfig {
 		fmt.Println("config is valid")
 		os.Exit(0)
 	}
@@ -37,7 +38,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	e, err := engine.NewEngine(cfg)
+	e, err := engine.NewEngine(rulesCfg)
 	if err != nil {
 		slog.Error("failed to create engine", "err", err)
 		os.Exit(1)
@@ -52,7 +53,7 @@ func main() {
 	<-ctx.Done()
 	slog.Info("shutting down")
 
-	timeout := *shutdownTimeout
+	timeout := cfg.ShutdownTimeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout)
 	defer shutdownCancel()
 	select {

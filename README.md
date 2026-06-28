@@ -69,26 +69,42 @@ On shutdown, Pavlov:
 3. Waits for all goroutines to finish, up to a configurable deadline.
 4. Exits with status `1` if shutdown does not complete in time.
 
-Configure the shutdown deadline with the `-shutdown-timeout` flag (default 10 seconds):
+### Command-line flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-config` | `/etc/pavlov/config.yaml` | Path to the rules YAML file |
+| `-check-config` | `false` | Validate the config file and exit |
+| `-shutdown-timeout` | `10s` | Max time to wait for graceful shutdown |
+| `-log-level` | `info` | Log level: `debug`, `info`, `warn`, or `error` |
+| `-log-format` | `json` | Log format: `json` or `text` |
+
+Examples:
 
 ```bash
 ./pavlov -config config.yaml -shutdown-timeout 30s
+./pavlov -log-level debug -log-format text
 ```
 
-Under normal conditions, shutdown completes in well under a second. The deadline exists as a safety net when a shell action hangs or a goroutine fails to exit.
+Invalid flag values cause Pavlov to exit with status `2` before logging starts.
+
+Under normal conditions, shutdown completes in well under a second. The shutdown deadline exists as a safety net when a shell action hangs or a goroutine fails to exit.
 
 ### Logging
 
-Set the log level with the `PAVLOV_LOG_LEVEL` environment variable:
+Pavlov logs to stderr. Control verbosity and format with `-log-level` and `-log-format`:
 
-| Value   | Level |
-|---------|-------|
+| `-log-level` | Level |
+|--------------|-------|
 | `debug` | Debug |
-| `info`  | Info (default) |
-| `warn`  | Warn |
+| `info` | Info (default) |
+| `warn` | Warn |
 | `error` | Error |
 
-Logs are written to stderr.
+| `-log-format` | Output |
+|---------------|--------|
+| `json` | Structured JSON (default) |
+| `text` | Human-readable key=value lines |
 
 ## Configuration
 

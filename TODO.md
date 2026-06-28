@@ -21,7 +21,6 @@ Rough list of planned work. No timeline — items may be dropped or reordered. M
 
 - [ ] Consistent structured log fields across components (rule name, file, group on every relevant message)
 - [ ] Optional log-to-file output (in addition to stderr)
-- [ ] Structured JSON log format option (for Loki, ELK, etc.)
 
 ## Parsers
 
