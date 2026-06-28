@@ -2,8 +2,6 @@
 
 Rough list of planned work. No timeline — items may be dropped or reordered. Maintained with help from AI tools (see README).
 
-Items prefixed with **!** are important — reliability, safety, or operability gaps that should be addressed before wider use.
-
 ## Testing and docs
 
 - [ ] Add documentation beyond README (config cookbook, architecture notes)
@@ -13,8 +11,8 @@ Items prefixed with **!** are important — reliability, safety, or operability 
 ## Configuration
 
 - [ ] Load a directory of config files (merge all `*.yaml` into one ruleset)
-- [ ] ! Config reload without restart (reload on `SIGHUP`)
-- [ ] ! Rule dry-run mode (feed sample log lines through a rule; show match, captures, condition result, and what action would run — but do not execute it)
+- [ ] Config reload without restart (reload on `SIGHUP`)
+- [ ] Rule dry-run mode (feed sample log lines through a rule; show match, captures, condition result, and what action would run — but do not execute it)
 - [ ] YAML anchors / includes for shared action templates and repeated rule fragments
 - [ ] Global defaults section in config (default `cooldown`, evaluator buffer size, shell timeout applied to all rules unless overridden)
 - [ ] Environment variable substitution in config paths (e.g. `script: ${ALERT_SCRIPT}` expanded at load time)
@@ -37,7 +35,6 @@ Today every rule uses a Go regex on the raw log line. Planned alternatives:
 
 ## Conditions
 
-- [ ] ! Configurable ticker interval for `absence` (how often to check "still missing"; currently hardcoded to 1s)
 - [ ] `rate` condition — cap repeat alerts **while a problem stays active** (distinct from `cooldown`, which only enforces a minimum gap *after* a fire):
   - `cooldown`: "I alerted you; stay quiet for N seconds, then you may alert again if the condition passes once more." During a sustained `threshold` breach, this can still page every cooldown period.
   - `rate`: "While the condition keeps being satisfied, alert at most once every N seconds." One reminder cadence for an ongoing incident, not one ping per re-qualifying event.
@@ -57,14 +54,14 @@ Today every rule uses a Go regex on the raw log line. Planned alternatives:
 
 ## Tailer
 
-- [ ] ! Tailer recovery (if a tailer goroutine exits with error, restart it with backoff instead of silently stopping that file)
+- [ ] Tailer recovery (if a tailer goroutine exits with error, restart it with backoff instead of silently stopping that file)
 - [ ] Rename/move rotation (handle `logrotate` rename-then-create, in addition to copytruncate and file-create)
 - [ ] Multi-line and partial-line handling (very long lines, log lines without a trailing newline)
 
 ## Observability
 
-- [ ] ! Dropped-event counters (increment when the 512-event evaluator buffer overflows; log periodic summary per rule)
-- [ ] ! Metrics collection + Prometheus exporter (optional build tag, e.g. `-tags prometheus`; expose counters for lines processed, matches, fires, drops, tailer restarts, action errors)
+- [ ] Dropped-event counters (increment when the 512-event evaluator buffer overflows; log periodic summary per rule)
+- [ ] Metrics collection + Prometheus exporter (optional build tag, e.g. `-tags prometheus`; expose counters for lines processed, matches, fires, drops, tailer restarts, action errors)
 - [ ] Health/status surface (HTTP `/health` or periodic log summary: tailers alive, per-rule last-fired time, enabled rule count)
 
 ## Build and deployment

@@ -61,7 +61,7 @@ func newTestRule(t *testing.T, opts func(*config.Rule)) *config.Rule {
 		Name:      "test_rule",
 		File:      "/tmp/test.log",
 		Pattern:   testPatternWithBackend,
-		Condition: config.ConditionSpec{Value: &condition.MatchCondition{}},
+		Condition: config.NewConditionSpec(&condition.MatchCondition{}),
 		Action:    config.ActionSpec{Value: newRecordingAction()},
 	}
 	if opts != nil {
@@ -101,24 +101,49 @@ func assertNoRecordedAction(t *testing.T, ch <-chan *action.ActionContext) {
 }
 
 func TestNewEvaluatorAbsenceSeed(t *testing.T) {
-	rule := newTestRule(t, func(r *config.Rule) {
-		r.Pattern = "heartbeat ok"
-		r.Condition = config.ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
+	t.Run("ungrouped", func(t *testing.T) {
+		rule := newTestRule(t, func(r *config.Rule) {
+			r.Pattern = "heartbeat ok"
+			r.Condition = config.NewConditionSpec(&condition.AbsenceCondition{Duration: 10})
+		})
+
+		ev := NewEvaluator(rule)
+		if len(ev.Instances) != 1 {
+			t.Fatalf("expected one seeded scope, got %d", len(ev.Instances))
+		}
+		state, ok := ev.Instances[""]
+		if !ok {
+			t.Fatal(`expected "" scope to be seeded`)
+		}
+		if state.Condition.LastSeen.IsZero() {
+			t.Fatal("expected LastSeen to be set at startup")
+		}
 	})
 
-	ev := NewEvaluator(rule)
-	if _, ok := ev.Instances[""]; !ok {
-		t.Fatal(`expected "" state to be seeded when group_by is empty`)
-	}
-	if len(ev.Instances) != 1 {
-		t.Fatalf("expected 1 state, got %d", len(ev.Instances))
-	}
+	t.Run("grouped", func(t *testing.T) {
+		rule := newTestRule(t, func(r *config.Rule) {
+			r.Pattern = "heartbeat ok"
+			r.Condition = config.NewConditionSpec(&condition.AbsenceCondition{Duration: 10})
+			r.GroupBy = "service"
+		})
 
-	rule.GroupBy = "service"
-	ev = NewEvaluator(rule)
-	if len(ev.Instances) != 0 {
-		t.Fatalf("expected no seeded states when group_by is set, got %d", len(ev.Instances))
-	}
+		ev := NewEvaluator(rule)
+		if len(ev.Instances) != 0 {
+			t.Fatalf("expected no seeded states when group_by is set, got %d", len(ev.Instances))
+		}
+	})
+}
+
+func TestCheckPeriodicFiresWithoutMatchingLine(t *testing.T) {
+	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
+		r.Pattern = "heartbeat ok"
+		r.Condition = config.NewConditionSpec(&condition.AbsenceCondition{Duration: 10})
+	}))
+	now := time.Now()
+	ev.Instances[""].Condition.LastSeen = now.Add(-15 * time.Second)
+
+	ev.CheckPeriodic(context.Background(), now)
+	waitForRecordedAction(t, recorder.ch)
 }
 
 func TestProcessNoMatch(t *testing.T) {
@@ -241,7 +266,7 @@ func TestProcessThresholdNotMetThenMet(t *testing.T) {
 func TestProcessAbsenceUpdatesLastSeenNoFire(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
 		r.Pattern = "heartbeat ok"
-		r.Condition = config.ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
+		r.Condition = config.NewConditionSpec(&condition.AbsenceCondition{Duration: 10})
 	}))
 	now := time.Now()
 
@@ -258,7 +283,7 @@ func TestProcessAbsenceGroupByCreatesPerGroupState(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
 		r.Pattern = `heartbeat ok (?P<service>[a-z]+)`
 		r.GroupBy = "service"
-		r.Condition = config.ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
+		r.Condition = config.NewConditionSpec(&condition.AbsenceCondition{Duration: 10})
 	}))
 	now := time.Now()
 
@@ -280,12 +305,12 @@ func TestProcessAbsenceGroupByCreatesPerGroupState(t *testing.T) {
 func TestCheckInstanceAbsenceNotMet(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
 		r.Pattern = "heartbeat ok"
-		r.Condition = config.ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
+		r.Condition = config.NewConditionSpec(&condition.AbsenceCondition{Duration: 10})
 	}))
 	now := time.Now()
 	state := &instanceState{Condition: &condition.ConditionState{LastSeen: now.Add(-5 * time.Second)}}
 
-	if got := ev.checkInstanceAbsence(context.Background(), "", state, now); got {
+	if got := ev.checkPeriodicInstance(context.Background(), "", state, now); got {
 		t.Fatalf("expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
@@ -294,12 +319,12 @@ func TestCheckInstanceAbsenceNotMet(t *testing.T) {
 func TestCheckInstanceAbsenceFires(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
 		r.Pattern = "heartbeat ok"
-		r.Condition = config.ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
+		r.Condition = config.NewConditionSpec(&condition.AbsenceCondition{Duration: 10})
 	}))
 	now := time.Now()
 	state := &instanceState{Condition: &condition.ConditionState{LastSeen: now.Add(-15 * time.Second)}}
 
-	if got := ev.checkInstanceAbsence(context.Background(), "", state, now); !got {
+	if got := ev.checkPeriodicInstance(context.Background(), "", state, now); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 
@@ -319,7 +344,7 @@ func TestCheckInstanceAbsenceCooldownBlocks(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
 		r.Pattern = "heartbeat ok"
 		r.Cooldown = 60
-		r.Condition = config.ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
+		r.Condition = config.NewConditionSpec(&condition.AbsenceCondition{Duration: 10})
 	}))
 	now := time.Now()
 	state := &instanceState{
@@ -327,7 +352,7 @@ func TestCheckInstanceAbsenceCooldownBlocks(t *testing.T) {
 		Run:       runState{LastFired: now.Add(-10 * time.Second)},
 	}
 
-	if got := ev.checkInstanceAbsence(context.Background(), "", state, now); got {
+	if got := ev.checkPeriodicInstance(context.Background(), "", state, now); got {
 		t.Fatalf("expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
@@ -337,7 +362,7 @@ func TestCheckAbsenceSkipsNonAbsenceRule(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, nil))
 	ev.Instances[""] = &instanceState{Condition: &condition.ConditionState{LastSeen: time.Now().Add(-15 * time.Second)}}
 
-	ev.CheckAbsence(context.Background())
+	ev.CheckPeriodic(context.Background(), time.Now())
 	assertNoRecordedAction(t, recorder.ch)
 }
 
@@ -345,13 +370,13 @@ func TestCheckAbsenceChecksAllGroups(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
 		r.Pattern = `heartbeat ok (?P<service>[a-z]+)`
 		r.GroupBy = "service"
-		r.Condition = config.ConditionSpec{Value: &condition.AbsenceCondition{Duration: 10}}
+		r.Condition = config.NewConditionSpec(&condition.AbsenceCondition{Duration: 10})
 	}))
 	now := time.Now()
 	ev.Instances["api"] = &instanceState{Condition: &condition.ConditionState{LastSeen: now.Add(-15 * time.Second)}}
 	ev.Instances["worker"] = &instanceState{Condition: &condition.ConditionState{LastSeen: now.Add(-5 * time.Second)}}
 
-	ev.CheckAbsence(context.Background())
+	ev.CheckPeriodic(context.Background(), now)
 
 	actionCtx := waitForRecordedAction(t, recorder.ch)
 	if actionCtx.Group != "api" {

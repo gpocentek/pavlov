@@ -46,48 +46,62 @@ func TestAbsenceConditionEvalEvent(t *testing.T) {
 	}
 }
 
-func TestAbsenceConditionEvalTick(t *testing.T) {
+func TestAbsenceConditionEvalPeriodic(t *testing.T) {
 	condition := &AbsenceCondition{Duration: 10}
 	now := time.Now()
 
 	// 15 seconds after the last seen, the absence should be true
 	ctx := &ConditionContext{
-		Timestamp:  now.Add(15 * time.Second),
-		FromTicker: true,
-		State:      &ConditionState{LastSeen: now},
+		Timestamp: now.Add(15 * time.Second),
+		State:     &ConditionState{LastSeen: now},
 	}
 
-	if got := condition.Eval(ctx); got != true {
+	if got := condition.EvalPeriodic(ctx); got != true {
 		t.Fatalf("expected true, got %v", got)
 	}
 
 	// 5 seconds after the last seen, the absence should be false
 	ctx = &ConditionContext{
-		Timestamp:  now.Add(5 * time.Second),
-		FromTicker: true,
-		State:      &ConditionState{LastSeen: now},
+		Timestamp: now.Add(5 * time.Second),
+		State:     &ConditionState{LastSeen: now},
 	}
 
-	if got := condition.Eval(ctx); got != false {
+	if got := condition.EvalPeriodic(ctx); got != false {
 		t.Fatalf("expected false, got %v", got)
 	}
 }
 
-func TestAbsenceConditionEvalTickExactDuration(t *testing.T) {
+func TestAbsenceConditionEvalPeriodicExactDuration(t *testing.T) {
 	condition := &AbsenceCondition{Duration: 10}
 	now := time.Now()
 
 	ctx := &ConditionContext{
-		Timestamp:  now.Add(10 * time.Second),
-		FromTicker: true,
-		State:      &ConditionState{LastSeen: now},
+		Timestamp: now.Add(10 * time.Second),
+		State:     &ConditionState{LastSeen: now},
 	}
-	if got := condition.Eval(ctx); got != false {
+	if got := condition.EvalPeriodic(ctx); got != false {
 		t.Fatalf("expected false at exact duration, got %v", got)
 	}
 
 	ctx.Timestamp = now.Add(10*time.Second + time.Nanosecond)
-	if got := condition.Eval(ctx); got != true {
+	if got := condition.EvalPeriodic(ctx); got != true {
 		t.Fatalf("expected true just past duration, got %v", got)
+	}
+}
+
+func TestAbsenceConditionSeedInstances(t *testing.T) {
+	condition := &AbsenceCondition{Duration: 10}
+
+	if seeds := condition.SeedInstances("service"); seeds != nil {
+		t.Fatalf("expected nil seeds with group_by, got %v", seeds)
+	}
+
+	seeds := condition.SeedInstances("")
+	if len(seeds) != 1 {
+		t.Fatalf("expected one seed, got %d", len(seeds))
+	}
+	state, ok := seeds[""]
+	if !ok || state.LastSeen.IsZero() {
+		t.Fatal(`expected "" scope with LastSeen set`)
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"pavlov/internal/condition"
 	"pavlov/internal/config"
 	"pavlov/internal/evaluator"
 	"pavlov/internal/tailer"
@@ -20,14 +19,12 @@ type filePipeline struct {
 }
 
 type Engine struct {
-	cfg               *config.Config
-	pipelines         map[string]*filePipeline
-	absenceEvaluators []*evaluator.Evaluator
+	cfg       *config.Config
+	pipelines map[string]*filePipeline
 }
 
 func NewEngine(cfg *config.Config) (*Engine, error) {
 	pipelines := make(map[string]*filePipeline)
-	absenceEvaluators := make([]*evaluator.Evaluator, 0)
 
 	for _, rule := range cfg.Rules {
 		pipeline, ok := pipelines[rule.File]
@@ -43,15 +40,11 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 
 		ev := evaluator.NewEvaluator(rule)
 		pipeline.Evaluators = append(pipeline.Evaluators, ev)
-		if _, ok := rule.Condition.Value.(*condition.AbsenceCondition); ok {
-			absenceEvaluators = append(absenceEvaluators, ev)
-		}
 	}
 
 	engine := &Engine{
-		cfg:               cfg,
-		pipelines:         pipelines,
-		absenceEvaluators: absenceEvaluators,
+		cfg:       cfg,
+		pipelines: pipelines,
 	}
 
 	return engine, nil
@@ -67,7 +60,6 @@ func (e *Engine) Run(ctx context.Context) {
 		"engine started",
 		"files", len(e.pipelines),
 		"rules", ruleCount,
-		"absence_rules", len(e.absenceEvaluators),
 	)
 
 	for file, pipeline := range e.pipelines {
@@ -96,13 +88,9 @@ func (e *Engine) Run(ctx context.Context) {
 		}(pipeline)
 	}
 
-	// Absence conditions need special handling, so we run a separate ticker for
-	// them.
-	if len(e.absenceEvaluators) > 0 {
-		wg.Go(func() {
-			e.runAbsenceTicker(ctx)
-		})
-	}
+	wg.Go(func() {
+		e.runPeriodicTicker(ctx)
+	})
 
 	<-ctx.Done()
 	wg.Wait()
@@ -127,15 +115,18 @@ func (e *Engine) fanOut(ctx context.Context, pipeline *filePipeline) {
 	}
 }
 
-func (e *Engine) runAbsenceTicker(ctx context.Context) {
+func (e *Engine) runPeriodicTicker(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			for _, ev := range e.absenceEvaluators {
-				ev.CheckAbsence(ctx)
+			now := time.Now()
+			for _, pipeline := range e.pipelines {
+				for _, ev := range pipeline.Evaluators {
+					ev.CheckPeriodic(ctx, now)
+				}
 			}
 		case <-ctx.Done():
 			return

@@ -42,10 +42,8 @@ type Evaluator struct {
 
 func NewEvaluator(rule *config.Rule) *Evaluator {
 	instances := make(map[string]*instanceState)
-	if _, ok := rule.Condition.Value.(*condition.AbsenceCondition); ok && rule.GroupBy == "" {
-		instances[""] = &instanceState{
-			Condition: &condition.ConditionState{LastSeen: time.Now()},
-		}
+	for scopeKey, condState := range rule.Condition.SeedInstances(rule) {
+		instances[scopeKey] = &instanceState{Condition: condState}
 	}
 
 	return &Evaluator{
@@ -131,15 +129,14 @@ func (e *Evaluator) process(ctx context.Context, event LineEvent) bool {
 	return e.tryFire(ctx, state, actionCtx)
 }
 
-func (e *Evaluator) checkInstanceAbsence(ctx context.Context, scopeKey string, state *instanceState, timestamp time.Time) bool {
+func (e *Evaluator) checkPeriodicInstance(ctx context.Context, scopeKey string, state *instanceState, timestamp time.Time) bool {
 	conditionCtx := &condition.ConditionContext{
 		GroupValue: scopeKey,
 		Timestamp:  timestamp,
 		State:      state.Condition,
-		FromTicker: true,
 	}
 
-	if !e.Rule.Condition.Value.Eval(conditionCtx) {
+	if !e.Rule.Condition.EvalPeriodic(conditionCtx) {
 		return false
 	}
 
@@ -153,14 +150,12 @@ func (e *Evaluator) checkInstanceAbsence(ctx context.Context, scopeKey string, s
 	return e.tryFire(ctx, state, actionCtx)
 }
 
-func (e *Evaluator) CheckAbsence(ctx context.Context) {
-	if _, ok := e.Rule.Condition.Value.(*condition.AbsenceCondition); !ok {
+func (e *Evaluator) CheckPeriodic(ctx context.Context, timestamp time.Time) {
+	if !e.Rule.Condition.SupportsPeriodic() {
 		return
 	}
-
-	now := time.Now()
 	for scopeKey, state := range e.Instances {
-		e.checkInstanceAbsence(ctx, scopeKey, state, now)
+		e.checkPeriodicInstance(ctx, scopeKey, state, timestamp)
 	}
 }
 

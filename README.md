@@ -27,7 +27,7 @@ log file  →  tailer  →  regex match  →  condition  →  action
 3. If the line matches, the rule's `condition` decides whether to fire.
 4. When the condition passes, the rule's `action` runs (log a message or execute a shell script).
 
-Rules with an `absence` condition are checked on a once-per-second ticker rather than on each log line.
+Rules with an `absence` condition are also evaluated periodically (once per second) in addition to line matches.
 
 ## Requirements
 
@@ -162,7 +162,7 @@ condition:
 
 Use for heartbeat / liveness checks: "tell me when `heartbeat ok` stops appearing."
 
-Absence rules are evaluated every second (not configurable yet). On startup, the clock starts from the current time — a missing heartbeat will not fire until `duration` seconds have passed without a match.
+Absence rules are evaluated periodically, once per second (not configurable yet). On startup, the clock starts from the current time — a missing heartbeat will not fire until `duration` seconds have passed without a match.
 
 ### Actions
 

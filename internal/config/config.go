@@ -25,11 +25,46 @@ func (c *ActionSpec) String() string {
 	return fmt.Sprint(c.Value)
 }
 
+// ConditionSpec is the runtime representation of a rule's `condition:` block.
+//
+// YAML carries a discriminated union (`type: match|threshold|absence`); UnmarshalYAML
+// decodes into a concrete condition.Condition implementation and stores it in Value.
+//
+// Most conditions are evaluated only when a log line matches the rule pattern (see
+// evaluator.process, which calls Value.Eval). Some conditions also implement optional
+// interfaces in internal/condition (PeriodicEvaluator, InstanceSeeder); ConditionSpec
+// delegates to those so the evaluator stays generic.
 type ConditionSpec struct {
 	Value condition.Condition
 }
 
-func (c *ConditionSpec) String() string {
+// NewConditionSpec wraps a condition for tests and programmatic rule construction.
+func NewConditionSpec(c condition.Condition) ConditionSpec {
+	return ConditionSpec{Value: c}
+}
+
+func (c ConditionSpec) SupportsPeriodic() bool {
+	_, ok := c.Value.(condition.PeriodicEvaluator)
+	return ok
+}
+
+func (c ConditionSpec) EvalPeriodic(ctx *condition.ConditionContext) bool {
+	pe, ok := c.Value.(condition.PeriodicEvaluator)
+	if !ok {
+		return false
+	}
+	return pe.EvalPeriodic(ctx)
+}
+
+func (c ConditionSpec) SeedInstances(rule *Rule) map[string]*condition.ConditionState {
+	s, ok := c.Value.(condition.InstanceSeeder)
+	if !ok {
+		return nil
+	}
+	return s.SeedInstances(rule.GroupBy)
+}
+
+func (c ConditionSpec) String() string {
 	if c.Value == nil {
 		return "<nil>"
 	}

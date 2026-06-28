@@ -481,7 +481,7 @@ func TestStringMethods(t *testing.T) {
 		Pattern: "error",
 		GroupBy: "backend",
 	}
-	expected := `{Name:"test_rule" File:"/tmp/error.log" Pattern:"error" GroupBy:"backend" Condition:{<nil>} Action:{<nil>}}`
+	expected := `{Name:"test_rule" File:"/tmp/error.log" Pattern:"error" GroupBy:"backend" Condition:<nil> Action:{<nil>}}`
 	if rule.String() != expected {
 		t.Fatalf("expected %q, got %q", expected, rule.String())
 	}
