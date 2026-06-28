@@ -125,7 +125,7 @@ func TestProcessNoMatch(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, nil))
 	now := time.Now()
 
-	if got := ev.process(LineEvent{Line: "nothing here", Timestamp: now}); got {
+	if got := ev.process(context.Background(), LineEvent{Line: "nothing here", Timestamp: now}); got {
 		t.Fatalf("expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
@@ -136,7 +136,7 @@ func TestProcessSeenFires(t *testing.T) {
 	now := time.Now()
 	line := "error: api"
 
-	if got := ev.process(LineEvent{Line: line, Timestamp: now}); !got {
+	if got := ev.process(context.Background(), LineEvent{Line: line, Timestamp: now}); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 
@@ -162,7 +162,7 @@ func TestProcessSeenCooldownBlocks(t *testing.T) {
 	now := time.Now()
 	ev.Instances[""] = &instanceState{Run: runState{LastFired: now.Add(-10 * time.Second)}}
 
-	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now}); got {
+	if got := ev.process(context.Background(), LineEvent{Line: "error: api", Timestamp: now}); got {
 		t.Fatalf("expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
@@ -178,7 +178,7 @@ func TestProcessSeenCooldownExpired(t *testing.T) {
 	now := time.Now()
 	ev.Instances[""] = &instanceState{Run: runState{LastFired: now.Add(-61 * time.Second)}}
 
-	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now}); !got {
+	if got := ev.process(context.Background(), LineEvent{Line: "error: api", Timestamp: now}); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 	waitForRecordedAction(t, recorder.ch)
@@ -194,17 +194,17 @@ func TestProcessGroupBySeparateState(t *testing.T) {
 	}))
 	now := time.Now()
 
-	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now}); !got {
+	if got := ev.process(context.Background(), LineEvent{Line: "error: api", Timestamp: now}); !got {
 		t.Fatalf("api: expected true, got %v", got)
 	}
 	waitForRecordedAction(t, recorder.ch)
 
-	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now.Add(time.Second)}); got {
+	if got := ev.process(context.Background(), LineEvent{Line: "error: api", Timestamp: now.Add(time.Second)}); got {
 		t.Fatalf("api cooldown: expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
 
-	if got := ev.process(LineEvent{Line: "error: db", Timestamp: now.Add(2 * time.Second)}); !got {
+	if got := ev.process(context.Background(), LineEvent{Line: "error: db", Timestamp: now.Add(2 * time.Second)}); !got {
 		t.Fatalf("db: expected true, got %v", got)
 	}
 	actionCtx := waitForRecordedAction(t, recorder.ch)
@@ -224,7 +224,7 @@ func TestProcessThresholdNotMetThenMet(t *testing.T) {
 	}))
 	now := time.Now()
 
-	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now}); got {
+	if got := ev.process(context.Background(), LineEvent{Line: "error: api", Timestamp: now}); got {
 		t.Fatalf("first event: expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
@@ -232,7 +232,7 @@ func TestProcessThresholdNotMetThenMet(t *testing.T) {
 		t.Fatalf("expected match times length 1, got %d", len(ev.Instances[""].Condition.MatchTimes))
 	}
 
-	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now.Add(time.Second)}); !got {
+	if got := ev.process(context.Background(), LineEvent{Line: "error: api", Timestamp: now.Add(time.Second)}); !got {
 		t.Fatalf("second event: expected true, got %v", got)
 	}
 	waitForRecordedAction(t, recorder.ch)
@@ -245,7 +245,7 @@ func TestProcessAbsenceUpdatesLastSeenNoFire(t *testing.T) {
 	}))
 	now := time.Now()
 
-	if got := ev.process(LineEvent{Line: "heartbeat ok", Timestamp: now}); got {
+	if got := ev.process(context.Background(), LineEvent{Line: "heartbeat ok", Timestamp: now}); got {
 		t.Fatalf("expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
@@ -262,7 +262,7 @@ func TestProcessAbsenceGroupByCreatesPerGroupState(t *testing.T) {
 	}))
 	now := time.Now()
 
-	if got := ev.process(LineEvent{Line: "heartbeat ok api", Timestamp: now}); got {
+	if got := ev.process(context.Background(), LineEvent{Line: "heartbeat ok api", Timestamp: now}); got {
 		t.Fatalf("expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
@@ -285,7 +285,7 @@ func TestCheckInstanceAbsenceNotMet(t *testing.T) {
 	now := time.Now()
 	state := &instanceState{Condition: &condition.ConditionState{LastSeen: now.Add(-5 * time.Second)}}
 
-	if got := ev.checkInstanceAbsence("", state, now); got {
+	if got := ev.checkInstanceAbsence(context.Background(), "", state, now); got {
 		t.Fatalf("expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
@@ -299,7 +299,7 @@ func TestCheckInstanceAbsenceFires(t *testing.T) {
 	now := time.Now()
 	state := &instanceState{Condition: &condition.ConditionState{LastSeen: now.Add(-15 * time.Second)}}
 
-	if got := ev.checkInstanceAbsence("", state, now); !got {
+	if got := ev.checkInstanceAbsence(context.Background(), "", state, now); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 
@@ -327,7 +327,7 @@ func TestCheckInstanceAbsenceCooldownBlocks(t *testing.T) {
 		Run:       runState{LastFired: now.Add(-10 * time.Second)},
 	}
 
-	if got := ev.checkInstanceAbsence("", state, now); got {
+	if got := ev.checkInstanceAbsence(context.Background(), "", state, now); got {
 		t.Fatalf("expected false, got %v", got)
 	}
 	assertNoRecordedAction(t, recorder.ch)
@@ -337,7 +337,7 @@ func TestCheckAbsenceSkipsNonAbsenceRule(t *testing.T) {
 	ev, recorder := newTestEvaluator(t, newTestRule(t, nil))
 	ev.Instances[""] = &instanceState{Condition: &condition.ConditionState{LastSeen: time.Now().Add(-15 * time.Second)}}
 
-	ev.CheckAbsence()
+	ev.CheckAbsence(context.Background())
 	assertNoRecordedAction(t, recorder.ch)
 }
 
@@ -351,7 +351,7 @@ func TestCheckAbsenceChecksAllGroups(t *testing.T) {
 	ev.Instances["api"] = &instanceState{Condition: &condition.ConditionState{LastSeen: now.Add(-15 * time.Second)}}
 	ev.Instances["worker"] = &instanceState{Condition: &condition.ConditionState{LastSeen: now.Add(-5 * time.Second)}}
 
-	ev.CheckAbsence()
+	ev.CheckAbsence(context.Background())
 
 	actionCtx := waitForRecordedAction(t, recorder.ch)
 	if actionCtx.Group != "api" {
@@ -385,8 +385,11 @@ func TestEnqueueRunProcessesEvent(t *testing.T) {
 	now := time.Now()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go ev.Run(ctx)
+	done := make(chan struct{})
+	go func() {
+		ev.Run(ctx)
+		close(done)
+	}()
 
 	ev.Enqueue("error: api", now)
 	actionCtx := waitForRecordedAction(t, recorder.ch)
@@ -395,6 +398,83 @@ func TestEnqueueRunProcessesEvent(t *testing.T) {
 	}
 
 	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after cancel")
+	}
+}
+
+func TestProcessSkipsWhenContextCanceled(t *testing.T) {
+	ev, recorder := newTestEvaluator(t, newTestRule(t, nil))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if got := ev.process(ctx, LineEvent{Line: "error: api", Timestamp: time.Now()}); got {
+		t.Fatalf("expected false, got %v", got)
+	}
+	assertNoRecordedAction(t, recorder.ch)
+}
+
+func TestTryFireSkipsWhenContextCanceled(t *testing.T) {
+	ev, recorder := newTestEvaluator(t, newTestRule(t, func(r *config.Rule) {
+		r.Cooldown = 0
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	state := &instanceState{Condition: &condition.ConditionState{}}
+	actionCtx := &action.ActionContext{
+		Rule:      ev.Rule.Name,
+		File:      ev.Rule.File,
+		Line:      "error: api",
+		Timestamp: time.Now(),
+	}
+
+	if got := ev.tryFire(ctx, state, actionCtx); got {
+		t.Fatalf("expected false, got %v", got)
+	}
+	assertNoRecordedAction(t, recorder.ch)
+}
+
+func TestRunShutdownWaitsForInFlightAction(t *testing.T) {
+	recorder := newRecordingAction()
+	*recorder.Options.Timeout = 60
+	recorder.finishedCh = make(chan error, 1)
+
+	ev := NewEvaluator(newTestRule(t, func(r *config.Rule) {
+		r.Action = config.ActionSpec{Value: recorder}
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		ev.Run(ctx)
+		close(done)
+	}()
+
+	ev.Enqueue("error: api", time.Now())
+	waitForRecordedAction(t, recorder.ch)
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after shutdown")
+	}
+
+	select {
+	case err := <-recorder.finishedCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected action canceled on shutdown, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected in-flight action to be canceled on shutdown")
+	}
 }
 
 func TestEnqueueDropsWhenBufferFull(t *testing.T) {
@@ -427,7 +507,7 @@ func TestTimeoutKillsRunningAction(t *testing.T) {
 	}))
 
 	now := time.Now()
-	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now}); !got {
+	if got := ev.process(context.Background(), LineEvent{Line: "error: api", Timestamp: now}); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 
@@ -458,12 +538,12 @@ func TestStopPreviousCancelsAndStartsNewAction(t *testing.T) {
 	}))
 
 	now := time.Now()
-	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now}); !got {
+	if got := ev.process(context.Background(), LineEvent{Line: "error: api", Timestamp: now}); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 	waitForRecordedAction(t, recorder.ch)
 
-	if got := ev.process(LineEvent{Line: "error: db", Timestamp: now.Add(time.Second)}); !got {
+	if got := ev.process(context.Background(), LineEvent{Line: "error: db", Timestamp: now.Add(time.Second)}); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 
@@ -493,12 +573,12 @@ func TestStopPreviousSkipsCompletedAction(t *testing.T) {
 	}))
 
 	now := time.Now()
-	if got := ev.process(LineEvent{Line: "error: api", Timestamp: now}); !got {
+	if got := ev.process(context.Background(), LineEvent{Line: "error: api", Timestamp: now}); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 	waitForRecordedAction(t, recorder.ch)
 
-	if got := ev.process(LineEvent{Line: "error: db", Timestamp: now.Add(time.Second)}); !got {
+	if got := ev.process(context.Background(), LineEvent{Line: "error: db", Timestamp: now.Add(time.Second)}); !got {
 		t.Fatalf("expected true, got %v", got)
 	}
 

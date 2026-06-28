@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"regexp"
+	"sync"
 	"time"
 
 	"pavlov/internal/action"
@@ -35,6 +36,7 @@ type Evaluator struct {
 	Rule      *config.Rule
 	Pattern   *regexp.Regexp
 	Instances map[string]*instanceState
+	wg        sync.WaitGroup
 	events    chan LineEvent
 }
 
@@ -51,6 +53,7 @@ func NewEvaluator(rule *config.Rule) *Evaluator {
 		Pattern:   rule.PatternRegexp,
 		Instances: instances,
 		events:    make(chan LineEvent, 512),
+		wg:        sync.WaitGroup{},
 	}
 }
 
@@ -58,14 +61,26 @@ func (e *Evaluator) Run(ctx context.Context) {
 	for {
 		select {
 		case event := <-e.events:
-			e.process(event)
+			e.process(ctx, event)
 		case <-ctx.Done():
+			for _, state := range e.Instances {
+				if state.Run.RunCtx != nil && state.Run.RunCtx.Err() == nil {
+					if state.Run.Cancel != nil {
+						state.Run.Cancel()
+					}
+				}
+			}
+			e.wg.Wait()
 			return
 		}
 	}
 }
 
-func (e *Evaluator) process(event LineEvent) bool {
+func (e *Evaluator) process(ctx context.Context, event LineEvent) bool {
+	if err := ctx.Err(); err != nil {
+		return false
+	}
+
 	slog.Debug("processing line", "rule", e.Rule.Name, "line", event.Line)
 	matches := e.Pattern.FindStringSubmatch(event.Line)
 	if len(matches) == 0 {
@@ -92,7 +107,7 @@ func (e *Evaluator) process(event LineEvent) bool {
 		e.Instances[scopeKey] = state
 	}
 
-	ctx := &condition.ConditionContext{
+	conditionCtx := &condition.ConditionContext{
 		Line:       event.Line,
 		Captures:   captures,
 		GroupValue: scopeKey,
@@ -100,7 +115,7 @@ func (e *Evaluator) process(event LineEvent) bool {
 		State:      state.Condition,
 	}
 
-	if !e.Rule.Condition.Value.Eval(ctx) {
+	if !e.Rule.Condition.Value.Eval(conditionCtx) {
 		return false
 	}
 
@@ -113,18 +128,18 @@ func (e *Evaluator) process(event LineEvent) bool {
 		Timestamp: event.Timestamp,
 		Captures:  captures,
 	}
-	return e.tryFire(state, actionCtx)
+	return e.tryFire(ctx, state, actionCtx)
 }
 
-func (e *Evaluator) checkInstanceAbsence(scopeKey string, state *instanceState, timestamp time.Time) bool {
-	ctx := &condition.ConditionContext{
+func (e *Evaluator) checkInstanceAbsence(ctx context.Context, scopeKey string, state *instanceState, timestamp time.Time) bool {
+	conditionCtx := &condition.ConditionContext{
 		GroupValue: scopeKey,
 		Timestamp:  timestamp,
 		State:      state.Condition,
 		FromTicker: true,
 	}
 
-	if !e.Rule.Condition.Value.Eval(ctx) {
+	if !e.Rule.Condition.Value.Eval(conditionCtx) {
 		return false
 	}
 
@@ -135,21 +150,25 @@ func (e *Evaluator) checkInstanceAbsence(scopeKey string, state *instanceState, 
 		Group:     scopeKey,
 		Timestamp: timestamp,
 	}
-	return e.tryFire(state, actionCtx)
+	return e.tryFire(ctx, state, actionCtx)
 }
 
-func (e *Evaluator) CheckAbsence() {
+func (e *Evaluator) CheckAbsence(ctx context.Context) {
 	if _, ok := e.Rule.Condition.Value.(*condition.AbsenceCondition); !ok {
 		return
 	}
 
 	now := time.Now()
 	for scopeKey, state := range e.Instances {
-		e.checkInstanceAbsence(scopeKey, state, now)
+		e.checkInstanceAbsence(ctx, scopeKey, state, now)
 	}
 }
 
-func (e *Evaluator) tryFire(state *instanceState, actionCtx *action.ActionContext) bool {
+func (e *Evaluator) tryFire(ctx context.Context, state *instanceState, actionCtx *action.ActionContext) bool {
+	if err := ctx.Err(); err != nil {
+		return false
+	}
+
 	if active, expiresAt := e.inCooldown(state, actionCtx.Timestamp); active {
 		slog.Info("Condition met, but cooldown not expired",
 			"rule", e.Rule.Name,
@@ -167,29 +186,31 @@ func (e *Evaluator) tryFire(state *instanceState, actionCtx *action.ActionContex
 
 	if stopPrevious && state.Run.RunCtx != nil && state.Run.RunCtx.Err() == nil {
 		slog.Warn("Cancelling previous action", "rule", e.Rule.Name, "group", actionCtx.Group)
-		state.Run.Cancel()
+		if state.Run.Cancel != nil {
+			state.Run.Cancel()
+		}
 	}
 
-	var ctx context.Context
+	var localCtx context.Context
 	var cancel context.CancelFunc
 	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(
-			context.Background(),
+		localCtx, cancel = context.WithTimeout(
+			ctx,
 			time.Duration(timeout)*time.Second,
 		)
 	} else {
-		ctx, cancel = context.WithCancel(context.Background())
+		localCtx, cancel = context.WithCancel(ctx)
 	}
 
-	go func() {
-		if cancel != nil {
-			defer cancel()
-		}
+	state.Run.Cancel = cancel
+	state.Run.RunCtx = localCtx
 
-		state.Run.Cancel = cancel
-		state.Run.RunCtx = ctx
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		defer cancel()
 		slog.Debug("Starting action", "rule", e.Rule.Name, "group", actionCtx.Group)
-		e.Rule.Action.Value.Act(ctx, actionCtx)
+		e.Rule.Action.Value.Act(localCtx, actionCtx)
 	}()
 	return true
 }

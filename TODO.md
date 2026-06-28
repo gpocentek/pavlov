@@ -57,7 +57,6 @@ Today every rule uses a Go regex on the raw log line. Planned alternatives:
 
 ## Tailer
 
-- [ ] ! Graceful shutdown (`fanOut` and evaluators stop on `ctx` cancel; wait for in-flight actions or honour a drain timeout)
 - [ ] ! Tailer recovery (if a tailer goroutine exits with error, restart it with backoff instead of silently stopping that file)
 - [ ] Rename/move rotation (handle `logrotate` rename-then-create, in addition to copytruncate and file-create)
 - [ ] Multi-line and partial-line handling (very long lines, log lines without a trailing newline)

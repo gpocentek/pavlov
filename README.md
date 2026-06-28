@@ -62,6 +62,21 @@ Validate a config file without starting the daemon:
 
 Pavlov handles `SIGINT` and `SIGTERM` for graceful shutdown.
 
+On shutdown, Pavlov:
+
+1. Stops tailing log files and closes watchers.
+2. Stops rule evaluators and cancels any in-flight actions (including shell scripts and their process groups).
+3. Waits for all goroutines to finish, up to a configurable deadline.
+4. Exits with status `1` if shutdown does not complete in time.
+
+Configure the shutdown deadline with the `-shutdown-timeout` flag (default 10 seconds):
+
+```bash
+./pavlov -config config.yaml -shutdown-timeout 30s
+```
+
+Under normal conditions, shutdown completes in well under a second. The deadline exists as a safety net when a shell action hangs or a goroutine fails to exit.
+
 ### Logging
 
 Set the log level with the `PAVLOV_LOG_LEVEL` environment variable:

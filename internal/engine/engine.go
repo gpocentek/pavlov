@@ -2,8 +2,10 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"pavlov/internal/condition"
@@ -56,6 +58,7 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 }
 
 func (e *Engine) Run(ctx context.Context) {
+	wg := sync.WaitGroup{}
 	ruleCount := 0
 	for _, pipeline := range e.pipelines {
 		ruleCount += len(pipeline.Evaluators)
@@ -69,39 +72,62 @@ func (e *Engine) Run(ctx context.Context) {
 
 	for file, pipeline := range e.pipelines {
 		slog.Debug("starting tailer", "file", file, "rules", len(pipeline.Evaluators))
+		wg.Add(1)
 		go func(file string, pipeline *filePipeline) {
-			if err := pipeline.Tailer.Run(); err != nil {
+			defer wg.Done()
+			if err := pipeline.Tailer.Run(ctx); err != nil {
+				if errors.Is(err, context.Canceled) {
+					return
+				}
 				slog.Error("tailer stopped", "file", file, "err", err)
 			}
 		}(file, pipeline)
 		for _, ev := range pipeline.Evaluators {
-			go ev.Run(ctx)
+			wg.Add(1)
+			go func(ev *evaluator.Evaluator) {
+				defer wg.Done()
+				ev.Run(ctx)
+			}(ev)
 		}
-		go e.fanOut(pipeline)
+		wg.Add(1)
+		go func(p *filePipeline) {
+			defer wg.Done()
+			e.fanOut(ctx, p)
+		}(pipeline)
 	}
 
 	// Absence conditions need special handling, so we run a separate ticker for
 	// them.
 	if len(e.absenceEvaluators) > 0 {
-		go e.runAbsenceTicker(ctx)
+		wg.Go(func() {
+			e.runAbsenceTicker(ctx)
+		})
 	}
 
 	<-ctx.Done()
+	wg.Wait()
 	slog.Info("engine stopped")
 }
 
-func (e *Engine) fanOut(pipeline *filePipeline) {
-	for line := range pipeline.Tailer.Events {
-		slog.Debug("line received", "file", pipeline.Tailer.File, "line", line)
-		now := time.Now()
-		for _, ev := range pipeline.Evaluators {
-			ev.Enqueue(line, now)
+func (e *Engine) fanOut(ctx context.Context, pipeline *filePipeline) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case line, ok := <-pipeline.Tailer.Events:
+			if !ok {
+				return
+			}
+			slog.Debug("line received", "file", pipeline.Tailer.File, "line", line)
+			now := time.Now()
+			for _, ev := range pipeline.Evaluators {
+				ev.Enqueue(line, now)
+			}
 		}
 	}
 }
 
 func (e *Engine) runAbsenceTicker(ctx context.Context) {
-	// TODO: Make this configurable.
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
@@ -109,7 +135,7 @@ func (e *Engine) runAbsenceTicker(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			for _, ev := range e.absenceEvaluators {
-				ev.CheckAbsence()
+				ev.CheckAbsence(ctx)
 			}
 		case <-ctx.Done():
 			return

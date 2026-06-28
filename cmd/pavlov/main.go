@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"pavlov/internal/config"
 	"pavlov/internal/engine"
@@ -17,11 +18,10 @@ import (
 func main() {
 	configFile := flag.String("config", "/etc/pavlov/config.yaml", "path to config file")
 	checkConfig := flag.Bool("check-config", false, "check config file and exit")
+	shutdownTimeout := flag.Duration("shutdown-timeout", 10*time.Second, "max time to wait for graceful shutdown")
 	flag.Parse()
 
 	logger.Init()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	cfg, err := config.LoadFromFile(*configFile)
 	if err != nil {
@@ -34,23 +34,36 @@ func main() {
 		os.Exit(0)
 	}
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	e, err := engine.NewEngine(cfg)
 	if err != nil {
 		slog.Error("failed to create engine", "err", err)
 		os.Exit(1)
 	}
-	go e.Run(ctx)
 
-	switch <-sig {
-	case syscall.SIGTERM:
-		slog.Info("received SIGTERM, shutting down")
-	case syscall.SIGINT:
-		slog.Info("received SIGINT, shutting down")
+	done := make(chan struct{})
+	go func() {
+		e.Run(ctx)
+		close(done)
+	}()
+
+	<-ctx.Done()
+	slog.Info("shutting down")
+
+	timeout := *shutdownTimeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout)
+	defer shutdownCancel()
+	select {
+	case <-done:
+		slog.Info("shutdown complete")
+	case <-shutdownCtx.Done():
+		slog.Error(
+			"graceful shutdown timed out, forcing exit",
+			"timeout", timeout,
+			"component", "engine",
+		)
+		os.Exit(1)
 	}
-
-	cancel()
-	slog.Info("shutdown complete")
 }

@@ -2,6 +2,7 @@ package tailer
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -68,14 +69,19 @@ func (t *Tailer) watchFile(skipToTheEnd bool) error {
 		return err
 	}
 
-	t.fd = fd
-	t.reader = bufio.NewReader(t.fd)
+	if fd != nil {
+		t.fd = fd
+		t.reader = bufio.NewReader(t.fd)
 
-	if skipToTheEnd {
-		_, err = t.fd.Seek(0, io.SeekEnd)
-		if err != nil {
-			return fmt.Errorf("could not seek to end of file: %v", err)
+		if skipToTheEnd {
+			_, err = t.fd.Seek(0, io.SeekEnd)
+			if err != nil {
+				return fmt.Errorf("could not seek to end of file: %v", err)
+			}
 		}
+	} else {
+		t.fd = nil
+		t.reader = nil
 	}
 
 	err = t.watcher.Add(t.File)
@@ -87,7 +93,11 @@ func (t *Tailer) watchFile(skipToTheEnd bool) error {
 	return nil
 }
 
-func (t *Tailer) readAndEmit() {
+func (t *Tailer) readAndEmit(ctx context.Context) {
+	if t.fd == nil {
+		return
+	}
+
 	// We need to detect if the file has been truncated
 	offset, _ := t.fd.Seek(0, io.SeekCurrent)
 	trueOffset := offset - int64(t.reader.Buffered())
@@ -111,6 +121,11 @@ func (t *Tailer) readAndEmit() {
 	}
 
 	for {
+		// return if the context is done
+		if err := ctx.Err(); err != nil {
+			return
+		}
+
 		line, err := t.reader.ReadString('\n')
 
 		if err == io.EOF {
@@ -122,28 +137,48 @@ func (t *Tailer) readAndEmit() {
 		}
 
 		line = strings.TrimRight(line, "\n")
-		t.events <- line
+		select {
+		case <-ctx.Done():
+			return
+		case t.events <- line:
+		}
 	}
 }
 
-func (t *Tailer) Run() error {
+func (t *Tailer) Run(ctx context.Context) error {
+	defer close(t.events)
+	defer t.watcher.Close()
+	defer func() {
+		if t.fd != nil {
+			_ = t.fd.Close()
+		}
+	}()
+
 	err := t.watchFile(true)
 	if err != nil {
 		return fmt.Errorf("could not start tailer: %v", err)
 	}
 
-	for event := range t.watcher.Events {
-		if event.Has(fsnotify.Create) && event.Name == t.File {
-			slog.Info("file appeared, tailing from start", "file", event.Name)
-			err = t.watchFile(false)
-			if err != nil {
-				return fmt.Errorf("could not watch file: %v", err)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case event, ok := <-t.watcher.Events:
+			if !ok {
+				slog.Warn("watcher closed unexpectedly")
+				return nil
 			}
-			t.readAndEmit()
-		} else if event.Has(fsnotify.Write) && event.Name == t.File {
-			t.readAndEmit()
+
+			if event.Has(fsnotify.Create) && event.Name == t.File {
+				slog.Info("file appeared, tailing from start", "file", event.Name)
+				err = t.watchFile(false)
+				if err != nil {
+					return fmt.Errorf("could not watch file: %v", err)
+				}
+				t.readAndEmit(ctx)
+			} else if event.Has(fsnotify.Write) && event.Name == t.File {
+				t.readAndEmit(ctx)
+			}
 		}
 	}
-
-	return nil
 }
